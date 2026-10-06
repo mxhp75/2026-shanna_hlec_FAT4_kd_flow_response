@@ -1,0 +1,19 @@
+# Conda environment for UMI-aware re-processing of the hLEC FAT4 RNA-seq data
+# STAR, samtools, fastqc and multiqc pinned to the versions in the original 'rnaseq' environment
+#
+# Create on the HPC login node:
+#   module load Anaconda3/2025.06-1
+#   conda env create -f environment.yml
+#   conda env export -n hlec_umi > environment.lock.yml   # record the exact resolved versions
+name: hlec_umi
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - star=2.7.11b
+  - samtools=1.24
+  - fastqc=0.12.1
+  - multiqc=1.27
+  - umi_tools
+  - cutadapt
+  - subread
