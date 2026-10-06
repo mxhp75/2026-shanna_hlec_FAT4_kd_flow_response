@@ -1,4 +1,4 @@
-# CLAUDE.md — FAT4 KD Flow Response Proteomics Project
+# CLAUDE.md — FAT4 KO Flow Response in hLECs: Proteomics and RNA-seq Project
 
 ## Behaviour Rules — Read Before Acting
 
@@ -63,9 +63,71 @@ RNASeq matched samples. RNA-seq data: paired-end FASTQ files, reverse-stranded l
 
 ---
 
+## Sequencing chemistry
+
+- 100bp PE sequencing using MGI DNBSEQ-G400 chemistry, run at R1: 100bp, R2: 100bp,
+Barcode: 10bp, Dual Barcode: 10bp
+- **Provider:** South Australian Genomics Centre (SAGC); quality report `RNASeq/raw_data/SAGCQR2280_KellyBetterman_18092026_NGSQualityReport.pdf` (quote SAGCQA2280)
+- **Library prep:** stranded mRNA, QIAseq FastSelect protocol, 20 amplification cycles
+- **Run:** 1 lane, 13 libraries (12 samples + SAGC negative control), 427M PF reads total; sequenced 10/09/2026
+- **Count matrix:** `RNASeq/raw_data/count_matrix.txt` — tab-separated raw counts, `GeneID` = versioned Ensembl IDs (GENCODE), columns named by SAGC ULN (`26-038xx_Sn_L03`)
+- **Negative control:** `26-03819_S13_L03` (`SAGC_negative`, <0.1 ng/uL library, 31.7M clusters PF) — dropped from analysis
+- **Low-depth sample:** CL18 / CLMT18 (S11) had 18.2M clusters PF vs ~30–45M for the others
+- **ULN → sample ID mapping** (report short name in brackets):
+
+| ULN              | Sample ID     | ULN              | Sample ID     |
+|------------------|---------------|------------------|---------------|
+| 26-03807_S1_L03  | CSMT16 (CS16) | 26-03813_S7_L03  | CLMT17 (CL17) |
+| 26-03808_S2_L03  | FSMT16 (FS16) | 26-03814_S8_L03  | FLMT17 (FL17) |
+| 26-03809_S3_L03  | CLMT16 (CL16) | 26-03815_S9_L03  | CSMT18 (CS18) |
+| 26-03810_S4_L03  | FLMT16 (FL16) | 26-03816_S10_L03 | FSMT18 (FS18) |
+| 26-03811_S5_L03  | CSMT17 (CS17) | 26-03817_S11_L03 | CLMT18 (CL18) |
+| 26-03812_S6_L03  | FSMT17 (FS17) | 26-03818_S12_L03 | FLMT18 (FL18) |
+
+- **Acknowledgement (required in publications):** "The authors acknowledge the South Australian Genomics Centre which provided {list services provided}. The SAGC is supported by the National Collaborative Research Infrastructure Strategy (NCRIS) via BioPlatforms Australia and by the SAGC partner institutes."
+
+---
+
 ## Cell Model
 
 - **Cell type:** Human lymphatic endothelial cells (hLECs)
 - **Perturbation:** FAT4 knockdown/knockout
 - **Mechanobiological stimulus:** Laminar fluid flow vs static culture
 - **Readout:** Protein abundance by mass spectrometry and transcript quantification by RNASeq
+
+---
+
+## RMarkdown Style
+
+All R scripts are RMarkdown (`.Rmd`). Reference example: `Protein/RScripts_protein/01_data_import_and_PCA.Rmd`.
+
+**File naming:**
+- Two-digit numeric prefix + snake_case description, e.g. `01_data_import_and_PCA.Rmd`
+- Scripts live in `Protein/RScripts_protein/` or `RNASeq/RScripts_rnaseq/`
+
+**YAML header:**
+- `title:` matches the file name (without `.Rmd`)
+- `author: "Melanie Smith"`
+- `date:` in `YYYY-MM-DD` format
+- `output: html_document`
+
+**Fixed opening sections, in order:**
+1. `setup` chunk (`include=FALSE`) with `knitr::opts_chunk$set(echo = TRUE)`
+2. `# Clean-up environment` — `rm(list = ls(all.names = TRUE))`, `gc()`, `options(max.print = .Machine$integer.max, scipen = 999, stringsAsFactors = FALSE, dplyr.summarise.inform = FALSE)`, `set.seed(42)`, each with an inline comment
+3. `# Load Libraries` — grouped under comment headers (e.g. `# Core tidyverse`)
+4. `# Set paths` — `projectDir` as the absolute project path; input files built with `file.path(projectDir, ...)`
+
+**Body:**
+- `#` level headers for each step, with a short prose explanation before the chunk
+- Chunks unnamed (except `setup`); plot chunks set `fig.width` / `fig.height`
+
+**Code idioms:**
+- camelCase object names (e.g. `rawData`, `sampleMeta`, `log2Mat`)
+- tidyverse with `%>%`; namespace `dplyr::select`
+- `stopifnot()` for sanity checks
+- Sample metadata derived from sample ID letters (C/F = Control/FAT4 KO; L/S = Laminar/Static), with factor levels `Control`, `FAT4 KO` and `Static`, `Laminar`
+- Group colour palette: `Control_Static = "#6BAED6"`, `Control_Laminar = "#08519C"`, `FAT4 KO_Static = "#FD8D3C"`, `FAT4 KO_Laminar = "#A63603"`
+- `theme_bw()` for ggplot
+
+**Closing section:**
+- `# Session information` with `sessionInfo()`

@@ -1,0 +1,174 @@
+---
+title: "01_data_import_and_QC"
+author: "Melanie Smith"
+date: "2026-10-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Clean-up environment
+
+```{r}
+rm(list = ls(all.names = TRUE)) # will clear all objects includuing hidden objects
+gc() # free up memory and report the memory usage
+options(max.print = .Machine$integer.max, scipen = 999, stringsAsFactors = FALSE, dplyr.summarise.inform = FALSE) # Print everything without truncation, avoid scientific notation, keep strings as characters, silence dplyr’s “grouped output” informational messages
+set.seed(42) # set seed for reprodcibility
+```
+
+# Load Libraries
+
+```{r}
+# Core tidyverse
+library(tidyverse)
+library(tibble)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# RNA-seq
+library(edgeR)
+library(limma)
+```
+
+# Set paths
+
+```{r}
+projectDir <- "/home/melanie-smith/workDir/natashaHarvey/2026-shanna_hlec_FAT4_kd_flow_response"
+inFile <- file.path(projectDir, "RNASeq", "raw_data", "count_matrix.txt")
+```
+
+# Import data
+
+The count matrix is a tab-separated file of raw counts, with one row per gene (versioned Ensembl ID) and one column per library, named by the SAGC ULN.
+
+```{r}
+rawCounts <- read_tsv(inFile, show_col_types = FALSE)
+
+dim(rawCounts)
+stopifnot(n_distinct(rawCounts$GeneID) == nrow(rawCounts)) # one row per gene
+stopifnot(!anyNA(rawCounts)) # no missing values
+
+rawCountMat <- rawCounts %>%
+  column_to_rownames("GeneID") %>%
+  as.matrix()
+
+stopifnot(all(rawCountMat >= 0), all(rawCountMat == round(rawCountMat))) # non-negative integer counts
+```
+
+# QC of the SAGC negative control
+
+Library `26-03819_S13_L03` is the SAGC negative control (library conc. <0.1 ng/uL, but 31.7M clusters passing filter). Compare the number of reads assigned to genes and the number of genes detected against the real libraries before removing it.
+
+```{r}
+tibble(ULN           = colnames(rawCountMat),
+       assignedReads = colSums(rawCountMat),
+       genesDetected = colSums(rawCountMat > 0))
+```
+
+# Drop the negative control and rename samples
+
+Map the SAGC ULN to the sample IDs used in the protein analysis (SAGC quality report SAGCQR2280). The negative control is not in the key, so it is dropped here.
+
+```{r}
+sampleKey <- tribble(
+  ~ULN,               ~sampleID,
+  "26-03807_S1_L03",  "CSMT16", # CS16
+  "26-03808_S2_L03",  "FSMT16", # FS16
+  "26-03809_S3_L03",  "CLMT16", # CL16
+  "26-03810_S4_L03",  "FLMT16", # FL16
+  "26-03811_S5_L03",  "CSMT17", # CS17
+  "26-03812_S6_L03",  "FSMT17", # FS17
+  "26-03813_S7_L03",  "CLMT17", # CL17
+  "26-03814_S8_L03",  "FLMT17", # FL17
+  "26-03815_S9_L03",  "CSMT18", # CS18
+  "26-03816_S10_L03", "FSMT18", # FS18
+  "26-03817_S11_L03", "CLMT18", # CL18
+  "26-03818_S12_L03", "FLMT18"  # FL18
+)
+
+countMat <- rawCountMat[, sampleKey$ULN]
+colnames(countMat) <- sampleKey$sampleID
+
+dim(countMat)
+stopifnot(ncol(countMat) == 12, !"26-03819_S13_L03" %in% colnames(countMat)) # 12 samples, negative control removed
+```
+
+# Sample metadata
+
+Genotype and condition are encoded in the first two letters of the sample ID (C/F = Control/FAT4 KO; L/S = Laminar/Static).
+
+```{r}
+sampleMeta <- tibble(sampleID = colnames(countMat)) %>%
+  mutate(genotype  = factor(if_else(str_sub(sampleID, 1, 1) == "C", "Control", "FAT4 KO"), levels = c("Control", "FAT4 KO")),
+         condition = factor(if_else(str_sub(sampleID, 2, 2) == "L", "Laminar", "Static"), levels = c("Static", "Laminar")),
+         group     = paste(genotype, condition, sep = "_"))
+
+sampleMeta
+```
+
+# Library sizes
+
+Library size here is the total number of reads assigned to genes in the count matrix (not the clusters passing filter in the SAGC report).
+
+```{r}
+libSize <- tibble(sampleID = colnames(countMat),
+                  libSize  = colSums(countMat)) %>%
+  left_join(sampleMeta, by = "sampleID") %>%
+  arrange(genotype, condition) %>%
+  mutate(sampleID = factor(sampleID, levels = sampleID)) # order samples by group on the x-axis
+
+libSize
+```
+
+```{r, fig.width=7, fig.height=5}
+ggplot(libSize, aes(x = sampleID, y = libSize / 1e6, fill = group)) +
+  geom_col() +
+  scale_fill_manual(values = c("Control_Static"   = "#6BAED6",
+                               "Control_Laminar"  = "#08519C",
+                               "FAT4 KO_Static"   = "#FD8D3C",
+                               "FAT4 KO_Laminar"  = "#A63603")) +
+  labs(x = NULL,
+       y = "Library size (million assigned reads)",
+       title = "Library sizes") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# MDS of raw data
+
+MDS of the unfiltered, unnormalised counts on the log2 CPM scale. `plotMDS` uses the top 500 genes by leading log2 fold change between each pair of samples.
+
+```{r}
+logCPM <- edgeR::cpm(countMat, log = TRUE)
+
+mds <- limma::plotMDS(logCPM, plot = FALSE)
+varExplained <- round(100 * mds$var.explained, 1)
+
+mdsDf <- tibble(sampleID = colnames(logCPM),
+                dim1     = mds$x,
+                dim2     = mds$y) %>%
+  left_join(sampleMeta, by = "sampleID")
+```
+
+```{r, fig.width=7, fig.height=5}
+ggplot(mdsDf, aes(x = dim1, y = dim2, colour = group, shape = condition)) +
+  geom_point(size = 4) +
+  geom_text(aes(label = sampleID), vjust = -1.2, size = 3, show.legend = FALSE) +
+  scale_colour_manual(values = c("Control_Static"   = "#6BAED6",
+                                 "Control_Laminar"  = "#08519C",
+                                 "FAT4 KO_Static"   = "#FD8D3C",
+                                 "FAT4 KO_Laminar"  = "#A63603")) +
+  labs(x = paste0("Leading logFC dim 1 (", varExplained[1], "%)"),
+       y = paste0("Leading logFC dim 2 (", varExplained[2], "%)"),
+       title = "MDS of raw log2 CPM") +
+  theme_bw()
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```

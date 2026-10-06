@@ -5,3 +5,10 @@
 .httr-oauth
 .DS_Store
 Protein/raw_data/After_Normalisation_imputation.csv
+RNASeq/raw_data/count_matrix.txt
+
+# Output and raw data file types (anywhere in the project)
+*.pdf
+*.png
+*.html
+*.tab

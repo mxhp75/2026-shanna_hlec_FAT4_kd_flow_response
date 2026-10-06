@@ -33,7 +33,7 @@ library(ggplot2)
 
 ```{r}
 projectDir <- "/home/melanie-smith/workDir/natashaHarvey/2026-shanna_hlec_FAT4_kd_flow_response"
-inFile <- file.path(projectDir, "After_Normalisation_imputation.csv")
+inFile <- file.path(projectDir, "Protein", "raw_data", "After_Normalisation_imputation.csv")
 ```
 
 # Import data
