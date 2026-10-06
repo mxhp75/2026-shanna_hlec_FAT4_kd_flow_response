@@ -1,0 +1,124 @@
+---
+title: "01_data_import_and_PCA"
+author: "Melanie Smith"
+date: "2026-09-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Clean-up environment
+
+```{r}
+rm(list = ls(all.names = TRUE)) # will clear all objects includuing hidden objects
+gc() # free up memory and report the memory usage
+options(max.print = .Machine$integer.max, scipen = 999, stringsAsFactors = FALSE, dplyr.summarise.inform = FALSE) # Print everything without truncation, avoid scientific notation, keep strings as characters, silence dplyr’s “grouped output” informational messages
+set.seed(42) # set seed for reprodcibility
+```
+
+# Load Libraries
+
+```{r}
+# Core tidyverse
+library(tidyverse)
+library(tibble)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+# Set paths
+
+```{r}
+projectDir <- "/home/melanie-smith/workDir/natashaHarvey/2026-shanna_hlec_FAT4_kd_flow_response"
+inFile <- file.path(projectDir, "After_Normalisation_imputation.csv")
+```
+
+# Import data
+
+The input file is precursor-level (one row per peptide precursor), so the protein group quantities are repeated across rows. Keep only the protein identifiers and the 12 `PG.Quantity` columns, then collapse to one row per protein group.
+
+```{r}
+rawData <- read_csv(inFile, show_col_types = FALSE)
+
+pgQuant <- rawData %>%
+  dplyr::select(PG.ProteinGroups, PG.Genes, ends_with(".PG.Quantity")) %>%
+  distinct()
+
+# simplify column names to the sample ID, e.g. "[1] CLMT16_S2-C1_1_3471.d.PG.Quantity" -> "CLMT16"
+colnames(pgQuant) <- str_replace(colnames(pgQuant), "^\\[\\d+\\] ([A-Z]+\\d+)_S2-.*$", "\\1")
+
+dim(pgQuant)
+stopifnot(n_distinct(pgQuant$PG.ProteinGroups) == nrow(pgQuant)) # one row per protein group
+```
+
+# Sample metadata
+
+Genotype and condition are encoded in the first two letters of the sample ID (C/F = Control/FAT4 KO; L/S = Laminar/Static).
+
+```{r}
+sampleMeta <- tibble(sampleID = colnames(pgQuant)[-(1:2)]) %>%
+  mutate(genotype  = factor(if_else(str_sub(sampleID, 1, 1) == "C", "Control", "FAT4 KO"), levels = c("Control", "FAT4 KO")),
+         condition = factor(if_else(str_sub(sampleID, 2, 2) == "L", "Laminar", "Static"), levels = c("Static", "Laminar")),
+         group     = paste(genotype, condition, sep = "_"))
+
+sampleMeta
+```
+
+# PCA
+
+PG.Quantity values are on the linear scale, so log2 transform before PCA.
+
+```{r}
+log2Mat <- pgQuant %>%
+  column_to_rownames("PG.ProteinGroups") %>%
+  dplyr::select(all_of(sampleMeta$sampleID)) %>%
+  as.matrix() %>%
+  log2()
+
+# samples as rows, proteins as columns
+pca <- prcomp(t(log2Mat), center = TRUE, scale. = FALSE)
+varExplained <- round(100 * pca$sdev^2 / sum(pca$sdev^2), 1)
+
+pcaDf <- as.data.frame(pca$x[, 1:4]) %>%
+  rownames_to_column("sampleID") %>%
+  left_join(sampleMeta, by = "sampleID")
+
+summary(pca)$importance[, 1:6]
+```
+
+```{r, fig.width=7, fig.height=5}
+ggplot(pcaDf, aes(x = PC1, y = PC2, colour = group, shape = condition)) +
+  geom_point(size = 4) +
+  geom_text(aes(label = sampleID), vjust = -1.2, size = 3, show.legend = FALSE) +
+  scale_colour_manual(values = c("Control_Static"   = "#6BAED6",
+                                 "Control_Laminar"  = "#08519C",
+                                 "FAT4 KO_Static"   = "#FD8D3C",
+                                 "FAT4 KO_Laminar"  = "#A63603")) +
+  labs(x = paste0("PC1 (", varExplained[1], "%)"),
+       y = paste0("PC2 (", varExplained[2], "%)"),
+       title = "PCA of log2 protein abundance") +
+  theme_bw()
+```
+
+```{r, fig.width=7, fig.height=5}
+ggplot(pcaDf, aes(x = PC3, y = PC4, colour = group, shape = condition)) +
+  geom_point(size = 4) +
+  geom_text(aes(label = sampleID), vjust = -1.2, size = 3, show.legend = FALSE) +
+  scale_colour_manual(values = c("Control_Static"   = "#6BAED6",
+                                 "Control_Laminar"  = "#08519C",
+                                 "FAT4 KO_Static"   = "#FD8D3C",
+                                 "FAT4 KO_Laminar"  = "#A63603")) +
+  labs(x = paste0("PC3 (", varExplained[3], "%)"),
+       y = paste0("PC4 (", varExplained[4], "%)"),
+       title = "PCA of log2 protein abundance") +
+  theme_bw()
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```
