@@ -68,7 +68,10 @@ Key alignment metrics from each library's STAR `Log.final.out`.
 ```{r}
 file.path(starDir, ulnIDs, "Log.final.out") %>%
   set_names(ulnIDs) %>%
-  map(~ read_delim(.x, delim = "|", col_names = c("metric", "value"), trim_ws = TRUE, show_col_types = FALSE)) %>%
+  map(~ read_lines(.x) %>%
+        str_subset(fixed("|")) %>% # drop section headers (e.g. "UNIQUE READS:") and blank lines, which have no "|"
+        I() %>%
+        read_delim(delim = "|", col_names = c("metric", "value"), trim_ws = TRUE, show_col_types = FALSE)) %>%
   bind_rows(.id = "ULN") %>%
   filter(metric %in% c("Number of input reads", "Uniquely mapped reads %",
                        "% of reads mapped to multiple loci", "% of reads unmapped: too short")) %>%
@@ -84,7 +87,7 @@ readsPerGeneLong %>%
   dplyr::select(ULN, GeneID, reverse) %>%
   mutate(GeneID = if_else(str_starts(GeneID, "N_"), GeneID, "assigned")) %>%
   group_by(ULN, GeneID) %>%
-  summarise(reads = sum(reverse)) %>%
+  summarise(reads = sum(reverse), .groups = "drop") %>%
   pivot_wider(names_from = GeneID, values_from = reads)
 ```
 
@@ -117,7 +120,7 @@ stopifnot(!anyNA(rawCountMat), all(rawCountMat >= 0)) # complete, non-negative c
 
 # QC of the SAGC negative control
 
-Library `26-03819_S13_L03` is the SAGC negative control (library conc. <0.1 ng/uL, but 31.7M clusters passing filter). Compare the number of reads assigned to genes and the number of genes detected against the real libraries before removing it.
+Library `26-03819_S13_L03` is the SAGC negative control (library conc. <0.1 ng/uL, 2,690 read pairs; the 31.7M clusters passing filter in the SAGC PDF report is an error). Compare the number of reads assigned to genes and the number of genes detected against the real libraries before removing it.
 
 ```{r}
 tibble(ULN           = colnames(rawCountMat),
