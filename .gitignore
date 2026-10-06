@@ -12,3 +12,4 @@ RNASeq/raw_data/count_matrix.txt
 *.png
 *.html
 *.tab
+*.out

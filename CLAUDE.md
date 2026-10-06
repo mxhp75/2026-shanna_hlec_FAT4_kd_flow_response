@@ -70,7 +70,7 @@ Barcode: 10bp, Dual Barcode: 10bp
 - **Provider:** South Australian Genomics Centre (SAGC); quality report `RNASeq/raw_data/SAGCQR2280_KellyBetterman_18092026_NGSQualityReport.pdf` (quote SAGCQA2280)
 - **Library prep:** stranded mRNA, QIAseq FastSelect protocol, 20 amplification cycles
 - **Run:** 1 lane, 13 libraries (12 samples + SAGC negative control), 427M PF reads total; sequenced 10/09/2026
-- **Count matrix:** `RNASeq/raw_data/count_matrix.txt` — tab-separated raw counts, `GeneID` = versioned Ensembl IDs (GENCODE), columns named by SAGC ULN (`26-038xx_Sn_L03`)
+- **Counts:** built in R from STAR `RNASeq/raw_data/star_align/<ULN>/ReadsPerGene.out.tab` using column 4 (reverse-stranded; forward fraction ≈ 0.05). `GeneID` = versioned Ensembl IDs (GENCODE). `count_matrix.txt` was built with a `paste` bug that scrambled counts — do not use
 - **Negative control:** `26-03819_S13_L03` (`SAGC_negative`, <0.1 ng/uL library, 31.7M clusters PF) — dropped from analysis
 - **Low-depth sample:** CL18 / CLMT18 (S11) had 18.2M clusters PF vs ~30–45M for the others
 - **ULN → sample ID mapping** (report short name in brackets):
