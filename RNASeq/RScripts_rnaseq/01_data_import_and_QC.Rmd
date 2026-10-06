@@ -167,6 +167,9 @@ sampleMeta <- tibble(sampleID = colnames(countMat)) %>%
          group     = paste(genotype, condition, sep = "_"))
 
 sampleMeta
+
+saveRDS(countMat, file.path(outDir, "01_count_matrix.rds"))
+saveRDS(sampleMeta, file.path(outDir, "01_sample_metadata.rds"))
 ```
 
 # Gene annotation

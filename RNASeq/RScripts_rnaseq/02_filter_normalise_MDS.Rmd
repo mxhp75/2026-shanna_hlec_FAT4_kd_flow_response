@@ -1,0 +1,344 @@
+---
+title: "02_filter_normalise_MDS"
+author: "Melanie Smith"
+date: "2026-10-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Clean-up environment
+
+```{r}
+rm(list = ls(all.names = TRUE)) # will clear all objects includuing hidden objects
+gc() # free up memory and report the memory usage
+options(max.print = .Machine$integer.max, scipen = 999, stringsAsFactors = FALSE, dplyr.summarise.inform = FALSE) # Print everything without truncation, avoid scientific notation, keep strings as characters, silence dplyr’s “grouped output” informational messages
+set.seed(42) # set seed for reprodcibility
+```
+
+# Load Libraries
+
+```{r}
+# Core tidyverse
+library(tidyverse)
+library(tibble)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# RNA-seq
+library(edgeR)
+library(limma)
+```
+
+# Set paths
+
+```{r}
+projectDir <- "/home/melanie-smith/workDir/natashaHarvey/2026-shanna_hlec_FAT4_kd_flow_response"
+outDir <- file.path(projectDir, "RNASeq", "out_dir")
+```
+
+# Import data
+
+Outputs of `01_data_import_and_QC.Rmd`: the raw count matrix (12 samples, renamed to the protein sample IDs, negative control removed), the sample metadata and the GENCODE v39 gene annotation.
+
+```{r}
+countMat <- readRDS(file.path(outDir, "01_count_matrix.rds"))
+sampleMeta <- readRDS(file.path(outDir, "01_sample_metadata.rds"))
+geneAnno <- readRDS(file.path(outDir, "01_gene_annotation.rds"))
+
+dim(countMat)
+stopifnot(identical(colnames(countMat), sampleMeta$sampleID)) # samples in the same order
+stopifnot(identical(rownames(countMat), geneAnno$GeneID)) # genes in the same order
+
+groupLevels <- c("Control_Static", "Control_Laminar", "FAT4 KO_Static", "FAT4 KO_Laminar")
+```
+
+# Create DGEList
+
+```{r}
+dgeAll <- DGEList(counts  = countMat,
+                  samples = as.data.frame(dplyr::select(sampleMeta, sampleID, genotype, condition)),
+                  genes   = as.data.frame(geneAnno),
+                  group   = factor(sampleMeta$group, levels = groupLevels))
+
+dgeAll$samples
+```
+
+# Filter lowly expressed genes
+
+`filterByExpr` keeps genes with enough reads to be worth testing in at least as many samples as the smallest group (n = 3), scaled to library size (default min.count = 10).
+
+```{r}
+keep <- filterByExpr(dgeAll, group = dgeAll$samples$group)
+table(keep)
+
+dge <- dgeAll[keep, , keep.lib.sizes = FALSE]
+dim(dge)
+
+# biotypes of the genes retained
+retainedBiotypes <- count(dge$genes, geneType, sort = TRUE)
+retainedBiotypes
+write_csv(retainedBiotypes, file.path(outDir, "02_retained_gene_biotypes.csv"))
+```
+
+# Density of log-CPM before and after filtering
+
+Filtering should remove the peak of low or zero counts at the left of the distribution.
+
+```{r}
+densityDf <- bind_rows(as_tibble(cpm(dgeAll, log = TRUE), rownames = "GeneID") %>% mutate(stage = "Before filtering"),
+                       as_tibble(cpm(dge, log = TRUE), rownames = "GeneID") %>% mutate(stage = "After filtering")) %>%
+  pivot_longer(-c(GeneID, stage), names_to = "sampleID", values_to = "logCPM") %>%
+  left_join(sampleMeta, by = "sampleID") %>%
+  mutate(stage = factor(stage, levels = c("Before filtering", "After filtering")))
+```
+
+```{r, fig.width=10, fig.height=4}
+densityPlot <- ggplot(densityDf, aes(x = logCPM, group = sampleID, colour = group)) +
+  geom_density() +
+  facet_wrap(~ stage, scales = "free_y") + # free y so the zero-count spike before filtering doesn't flatten the after panel
+  scale_colour_manual(values = c("Control_Static"   = "#6BAED6",
+                                 "Control_Laminar"  = "#08519C",
+                                 "FAT4 KO_Static"   = "#FD8D3C",
+                                 "FAT4 KO_Laminar"  = "#A63603")) +
+  labs(x = "log2 CPM",
+       y = "Density",
+       title = "Distribution of log2 CPM per sample") +
+  theme_bw()
+
+densityPlot
+ggsave(file.path(outDir, "02_density_logCPM_filtering.png"), densityPlot, width = 10, height = 4, dpi = 300)
+```
+
+# TMM normalisation
+
+```{r}
+dge <- normLibSizes(dge) # TMM (calcNormFactors in older edgeR)
+
+dge$samples
+write_csv(dge$samples, file.path(outDir, "02_TMM_norm_factors.csv"))
+```
+
+# MDS of filtered, normalised data
+
+MDS of the filtered, TMM-normalised log2 CPM. `plotMDS` uses the top 500 genes by leading log2 fold change between each pair of samples.
+
+```{r}
+logCPM <- cpm(dge, log = TRUE)
+
+mds12 <- plotMDS(logCPM, plot = FALSE)
+mds34 <- plotMDS(logCPM, dim.plot = c(3, 4), plot = FALSE)
+varExplained <- round(100 * mds12$var.explained, 1)
+
+mdsDf <- tibble(sampleID = colnames(logCPM),
+                dim1     = mds12$x,
+                dim2     = mds12$y,
+                dim3     = mds34$x,
+                dim4     = mds34$y) %>%
+  left_join(sampleMeta, by = "sampleID")
+
+write_csv(mdsDf, file.path(outDir, "02_MDS_coordinates.csv"))
+```
+
+```{r, fig.width=7, fig.height=5}
+mds12Plot <- ggplot(mdsDf, aes(x = dim1, y = dim2, colour = group, shape = condition)) +
+  geom_point(size = 4) +
+  geom_text(aes(label = sampleID), vjust = -1.2, size = 3, show.legend = FALSE) +
+  scale_colour_manual(values = c("Control_Static"   = "#6BAED6",
+                                 "Control_Laminar"  = "#08519C",
+                                 "FAT4 KO_Static"   = "#FD8D3C",
+                                 "FAT4 KO_Laminar"  = "#A63603")) +
+  labs(x = paste0("Leading logFC dim 1 (", varExplained[1], "%)"),
+       y = paste0("Leading logFC dim 2 (", varExplained[2], "%)"),
+       title = "MDS of filtered, TMM-normalised log2 CPM") +
+  theme_bw()
+
+mds12Plot
+ggsave(file.path(outDir, "02_MDS_TMM_logCPM_dim1-2.png"), mds12Plot, width = 7, height = 5, dpi = 300)
+```
+
+```{r, fig.width=7, fig.height=5}
+mds34Plot <- ggplot(mdsDf, aes(x = dim3, y = dim4, colour = group, shape = condition)) +
+  geom_point(size = 4) +
+  geom_text(aes(label = sampleID), vjust = -1.2, size = 3, show.legend = FALSE) +
+  scale_colour_manual(values = c("Control_Static"   = "#6BAED6",
+                                 "Control_Laminar"  = "#08519C",
+                                 "FAT4 KO_Static"   = "#FD8D3C",
+                                 "FAT4 KO_Laminar"  = "#A63603")) +
+  labs(x = paste0("Leading logFC dim 3 (", varExplained[3], "%)"),
+       y = paste0("Leading logFC dim 4 (", varExplained[4], "%)"),
+       title = "MDS of filtered, TMM-normalised log2 CPM") +
+  theme_bw()
+
+mds34Plot
+ggsave(file.path(outDir, "02_MDS_TMM_logCPM_dim3-4.png"), mds34Plot, width = 7, height = 5, dpi = 300)
+```
+
+# Genes driving dimension 1
+
+`plotMDS` gives sample coordinates rather than gene loadings, so rank genes by the correlation of their log2 CPM with the dim 1 coordinate across the 12 samples. The sign of an MDS dimension is arbitrary, so check which side the samples of interest fall on in the plot above.
+
+```{r}
+dim1Genes <- tibble(GeneID = rownames(logCPM),
+                    r      = apply(logCPM, 1, cor, y = mdsDf$dim1),
+                    aveLogCPM = rowMeans(logCPM)) %>%
+  left_join(dplyr::select(geneAnno, GeneID, geneName, geneType, chr), by = "GeneID")
+
+write_csv(arrange(dim1Genes, desc(r)), file.path(outDir, "02_dim1_gene_correlations.csv")) # all retained genes
+
+# top genes positively and negatively correlated with dim 1
+dim1Genes %>% slice_max(r, n = 30)
+dim1Genes %>% slice_min(r, n = 30)
+
+# biotypes of the 500 genes most strongly correlated with dim 1, compared with all retained genes
+dim1Biotypes <- dim1Genes %>%
+  slice_max(abs(r), n = 500) %>%
+  count(geneType, name = "top500") %>%
+  left_join(count(dim1Genes, geneType, name = "allRetained"), by = "geneType") %>%
+  arrange(desc(top500))
+
+dim1Biotypes
+write_csv(dim1Biotypes, file.path(outDir, "02_dim1_top500_biotypes.csv"))
+```
+
+# Fraction of reads in rRNA, mitochondrial and histone genes
+
+Percentage of each library's gene-assigned reads (unfiltered raw counts) in rRNA genes (`rRNA`, `rRNA_pseudogene`, `Mt_rRNA`), other mitochondrial (`chrM`) genes and protein-coding histone genes. Most nuclear 45S rRNA copies are not in the GRCh38 primary annotation, so residual rRNA may be under-counted.
+
+```{r}
+geneClass <- case_when(geneAnno$geneType %in% c("rRNA", "rRNA_pseudogene", "Mt_rRNA") ~ "rRNA",
+                       geneAnno$chr == "chrM" ~ "mitochondrial",
+                       geneAnno$geneType == "protein_coding" & str_detect(geneAnno$geneName, "^(H1-\\d|H2A|H2B|H3|H4)") ~ "histone",
+                       TRUE ~ "other")
+table(geneClass)
+
+readFractions <- (100 * t(rowsum(countMat, geneClass)) / colSums(countMat)) %>% # samples as rows, % of reads per class
+  as_tibble(rownames = "sampleID") %>%
+  dplyr::select(sampleID, rRNA, mitochondrial, histone)
+
+readFractions
+write_csv(readFractions, file.path(outDir, "02_read_fractions.csv"))
+```
+
+# MDS dimensions vs QC metrics
+
+Correlate the MDS coordinates with technical QC metrics. GC content and R1 duplication are from the SAGC MultiQC report (FastQC, `RNASeq/raw_data/qc/sagcQC/multiqc_report.html`); the forward-strand fraction is from the strandedness check in `01_data_import_and_QC.Rmd`.
+
+```{r}
+qcMetrics <- tribble(
+  ~sampleID, ~gcR1, ~gcR2, ~dupR1, ~fracForward,
+  "CSMT16",  42,    45,    90.6,   0.0536, # S1
+  "FSMT16",  40,    44,    93.1,   0.0540, # S2
+  "CLMT16",  40,    45,    94.2,   0.0556, # S3
+  "FLMT16",  45,    50,    88.7,   0.0697, # S4
+  "CSMT17",  40,    44,    94.8,   0.0523, # S5
+  "FSMT17",  46,    51,    89.9,   0.0714, # S6
+  "CLMT17",  47,    51,    89.0,   0.0718, # S7
+  "FLMT17",  43,    46,    94.6,   0.0644, # S8
+  "CSMT18",  39,    44,    94.1,   0.0544, # S9
+  "FSMT18",  39,    44,    94.3,   0.0584, # S10
+  "CLMT18",  40,    45,    93.7,   0.0623, # S11
+  "FLMT18",  39,    44,    94.1,   0.0587  # S12
+)
+
+qcDf <- mdsDf %>%
+  dplyr::select(sampleID, group, dim1, dim2) %>%
+  left_join(qcMetrics, by = "sampleID") %>%
+  left_join(readFractions, by = "sampleID") %>%
+  left_join(tibble(sampleID = colnames(dge), libSize = dge$samples$lib.size / 1e6), by = "sampleID") # million reads
+
+stopifnot(!anyNA(qcDf))
+write_csv(qcDf, file.path(outDir, "02_QC_metrics_by_sample.csv"))
+
+qcLong <- qcDf %>%
+  pivot_longer(-c(sampleID, group, dim1, dim2), names_to = "metric", values_to = "value")
+
+qcCor <- qcLong %>%
+  group_by(metric) %>%
+  summarise(rDim1 = cor(value, dim1),
+            rDim2 = cor(value, dim2)) %>%
+  arrange(desc(abs(rDim1)))
+
+qcCor
+write_csv(qcCor, file.path(outDir, "02_MDS_vs_QC_correlations.csv"))
+```
+
+```{r, fig.width=10, fig.height=6}
+qcPlot <- ggplot(qcLong, aes(x = value, y = dim1, colour = group)) +
+  geom_point(size = 3) +
+  facet_wrap(~ metric, scales = "free_x") +
+  scale_colour_manual(values = c("Control_Static"   = "#6BAED6",
+                                 "Control_Laminar"  = "#08519C",
+                                 "FAT4 KO_Static"   = "#FD8D3C",
+                                 "FAT4 KO_Laminar"  = "#A63603")) +
+  labs(x = "QC metric value",
+       y = "MDS dim 1",
+       title = "MDS dim 1 vs QC metrics") +
+  theme_bw()
+
+qcPlot
+ggsave(file.path(outDir, "02_MDS_dim1_vs_QC.png"), qcPlot, width = 10, height = 6, dpi = 300)
+```
+
+# Marker genes
+
+Check sample labels against expected biology: KLF2 and KLF4 are flow-induced and should be higher in Laminar; FAT4 should be lower in FAT4 KO if the knockout reduces the transcript. Log2 CPM uses the unfiltered counts with the TMM effective library sizes, so markers are shown even if they were filtered out.
+
+```{r}
+markerIDs <- geneAnno %>%
+  filter(geneName %in% c("FAT4", "KLF2", "KLF4")) %>%
+  dplyr::select(GeneID, geneName)
+stopifnot(nrow(markerIDs) == 3)
+
+markerDf <- cpm(dgeAll$counts[markerIDs$GeneID, , drop = FALSE],
+                lib.size = dge$samples$lib.size * dge$samples$norm.factors,
+                log = TRUE) %>%
+  as_tibble(rownames = "GeneID") %>%
+  pivot_longer(-GeneID, names_to = "sampleID", values_to = "logCPM") %>%
+  left_join(markerIDs, by = "GeneID") %>%
+  left_join(sampleMeta, by = "sampleID") %>%
+  mutate(group = factor(group, levels = groupLevels))
+
+markerWide <- markerDf %>%
+  dplyr::select(sampleID, group, geneName, logCPM) %>%
+  pivot_wider(names_from = geneName, values_from = logCPM) %>%
+  arrange(group)
+
+markerWide
+write_csv(markerWide, file.path(outDir, "02_marker_genes_logCPM.csv"))
+```
+
+```{r, fig.width=10, fig.height=4}
+markerPlot <- ggplot(markerDf, aes(x = group, y = logCPM, colour = group)) +
+  geom_point(size = 3) +
+  geom_text(aes(label = sampleID), hjust = -0.25, size = 2.5, show.legend = FALSE) +
+  facet_wrap(~ geneName, scales = "free_y") +
+  scale_x_discrete(expand = expansion(add = c(0.6, 1))) + # extra space on the right so the sample labels aren't clipped
+  scale_colour_manual(values = c("Control_Static"   = "#6BAED6",
+                                 "Control_Laminar"  = "#08519C",
+                                 "FAT4 KO_Static"   = "#FD8D3C",
+                                 "FAT4 KO_Laminar"  = "#A63603")) +
+  labs(x = NULL,
+       y = "log2 CPM (TMM)",
+       title = "Marker genes") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+markerPlot
+ggsave(file.path(outDir, "02_marker_genes.png"), markerPlot, width = 10, height = 4, dpi = 300)
+```
+
+# Save filtered, normalised DGEList
+
+```{r}
+saveRDS(dge, file.path(outDir, "02_dge_filtered_TMM.rds"))
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```

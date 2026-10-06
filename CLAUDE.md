@@ -89,6 +89,30 @@ Barcode: 10bp, Dual Barcode: 10bp
 
 ---
 
+## RNA-seq QC findings
+
+**GC-content bias in three libraries: FLMT16 (S4), FSMT17 (S6), CLMT17 (S7)** — identified 2026-10-06 in `02_filter_normalise_MDS.Rmd`
+
+- These three samples separate from the other nine on MDS dim 1 (~42% of variance), before and after filtering/TMM. The split cuts across genotype, condition and replicate, so it is technical, not biological
+- Dim 1 correlates with read GC% (R2 r = 0.98, R1 r = 0.93), histone-gene read fraction (r = 0.98), forward-strand fraction (r = 0.93), and negatively with R1 duplication (r = −0.89) and mitochondrial fraction (r = −0.69). Not related to library size
+- Gene-level signature: genes higher in the three are on GC-rich chromosomes (chr22, 19, 16, 17, 20); genes lower are on AT-rich chromosomes (chr13, 4, 18, 5) and chrM. ~1,450 genes have r > 0.9 and ~360 have r < −0.9 with dim 1 (of 15,710 retained) — genome-wide effect
+- Ruled out: proliferation (MKI67, TOP2A, CDK1, CCNA2 do not track dim 1), residual rRNA (the three have the *lowest* rRNA fraction), sample label swaps (marker genes are consistent with labels)
+- Likely source: library prep (PCR amplification, 20 cycles, or fragmentation). Not yet confirmed with the lab/SAGC whether S4, S6, S7 were processed differently
+- Partially confounded with design: one sample each from Control_Laminar, FAT4 KO_Laminar, FAT4 KO_Static; none from Control_Static
+- **Not yet corrected.** Preferred approach: per-gene exonic GC content from the GRCh38 genome FASTA + GENCODE v39 GTF, then cqn offsets in edgeR. Alternatives: GC covariate in the design, or RUVSeq/svaseq
+
+**Interpretation cautions while uncorrected:**
+- Per-sample values for GC-rich genes are inflated, and AT-rich genes deflated, in the three samples. Check gene GC/chromosome before interpreting any gene-level pattern that is driven by these samples
+- KLF2 (chr19, GC-rich) is highest within its group in all three samples (CLMT17, FSMT17, FLMT16) — likely partly GC bias
+- FAT4 (chr4, AT-rich) is lowest or near-lowest within its group in all three — the KO reduction may be slightly overstated in those samples, but Control vs KO still separates without them
+- Endothelial genes FLT4, CDH5, NOS3 correlate strongly with dim 1 (r 0.92–0.99), probably via GC content
+
+**Marker genes confirm labels:** FAT4 is ~1–1.5 log2 lower in all KO vs all Control samples (partial reduction, knockdown-like); KLF4 separates all Laminar from all Static.
+
+**Other individual-sample variation:** CLMT16 and FLMT17 (MDS dims 2 and 4) and CSMT17 (dim 3; also very low KLF2).
+
+---
+
 ## Cell Model
 
 - **Cell type:** Human lymphatic endothelial cells (hLECs)
