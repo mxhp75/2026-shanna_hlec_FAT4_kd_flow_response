@@ -111,6 +111,24 @@ Barcode: 10bp, Dual Barcode: 10bp
 
 **Other individual-sample variation:** CLMT16 and FLMT17 (MDS dims 2 and 4) and CSMT17 (dim 3; also very low KLF2).
 
+**Read-level evidence for the GC bias (FastQC, `RNASeq/raw_data/qc/myQC/fastqc/`):**
+- The three samples have a broad high-GC shoulder in per-read GC content: 20–24% of R2 reads (12–15% of R1) are ≥60% GC vs ≤1.7% in the other nine; GC SD ~10 vs 6–7. Modal GC is normal — it is an extra population, not a shift
+- Not contamination: smooth shoulder rather than a discrete peak, and mapping (95–96% unique), Kraken (~86% human), unassigned and multimapping rates are all normal for these samples
+- The bias is present in the FASTQ before alignment, so it originates in the libraries, not in STAR/counting
+- The three have *lower* duplication than the others (R1 88.7–89.9% vs 90.6–94.8%), so the extra high-GC reads are probably not simply PCR duplicates
+
+**Read structure (confirmed from FASTQ, 2026-10-06; same in all 12 samples):**
+- **R2:** `N` (pos 1, no-call) + **10 nt random (UMI-like)** (pos 2–11) + fixed **`GCA`** (pos 12–14) + **`GGG`** (pos 15–17, template-switching signature) + insert from pos ~18. A minority of reads show a 1-base shift or lack the linker
+- UMI evidence: 529,407 distinct pos 2–11 10-mers in 1M R2 reads (S1), most frequent seen 32 times — near-random, not transcript-derived. R2 deduplicated % (21–35%) is also much higher than R1 (5–11%)
+- **R1:** `TTT` (pos 1–3, ~70–78% T, short fixed sequence — not oligo-dT) + insert; identical across samples. **Confirmed no UMI in R1:** pos 4–13 10-mers in 1M R1 reads (S1) — 280,936 distinct, most frequent seen 3,835× (vs 529,407 distinct / max 32× for R2 pos 2–11); top R1 sequences match the FastQC overrepresented sequences (abundant transcripts)
+- Base composition from FastQC is binned in pairs after base 9; exact positions were confirmed from raw R2 reads
+- **Current counts (STAR `ReadsPerGene`, column 4) are NOT UMI-deduplicated and the R2 linker/UMI was not trimmed** — STAR soft-clipped it (hence normal mapping rates)
+
+**Pending (as of 2026-10-06):**
+- Library kit used with QIAseq FastSelect — to be confirmed by Shanna (lab book) or SAGC. The kit manual should define the exact UMI length, linker and R1 leading bases. Do not finalise UMI extraction/trimming parameters until known
+- Shanna is checking lab book notes for any processing differences in FLMT16, FSMT17, CLMT17
+- Proposed re-processing once the kit is known: `umi_tools extract` (R2 regex: N + 10-nt UMI + `GCAGGG`) → adapter/leading-base trim → STAR (GRCh38 / GENCODE v39) → `umi_tools dedup --paired` → `featureCounts -p -s 2`. Then re-run 01/02 and check whether the GC-bias dim 1 split persists; if so, apply cqn GC correction
+
 ---
 
 ## Cell Model
