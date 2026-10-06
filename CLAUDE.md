@@ -12,8 +12,16 @@
 
 ## Project Overview
 
+**Project:** Human lymphatic endothelial cells (hLEC) analysis: FAT4 knock out
+**Researcher:** Melanie Smith — melanie.smith@adelaide.edu.au
+**PI/Collaborator:** Natasha Harvey
+**CI/Collaborator:** Shanna Hosking
+**Project directory:** `/home/melanie-smith/workDir/natashaHarvey/2026-shanna_hlec_FAT4_kd_flow_response`
+
+This project analyses hLEC cells exposed to Laminar or Static flow in the context of a FAT4 knockout. We are asking the question "What is the response to flow in the absence of FAT4?" We have protein abundence (mass spec) and matched RNASeq.
 Mass spectrometry-based protein abundance profiling of human lymphatic endothelial cells (hLECs) to investigate the role of FAT4 in the cellular response to fluid flow. Cells were cultured under either laminar flow or static media conditions, in a control or FAT4 knockout background, yielding a 2×2 factorial design with three biological replicates per group (n=12 total samples).
 RNASeq matched samples. RNA-seq data: paired-end FASTQ files, reverse-stranded library preparation. STAR-generated ReadsPerGene.out.tab files are used for read-count QC.
+
 ---
 
 ## Project Directory
@@ -60,4 +68,4 @@ RNASeq matched samples. RNA-seq data: paired-end FASTQ files, reverse-stranded l
 - **Cell type:** Human lymphatic endothelial cells (hLECs)
 - **Perturbation:** FAT4 knockdown/knockout
 - **Mechanobiological stimulus:** Laminar fluid flow vs static culture
-- **Readout:** Protein abundance by mass spectrometry
+- **Readout:** Protein abundance by mass spectrometry and transcript quantification by RNASeq
