@@ -7,6 +7,8 @@
 Protein/raw_data/After_Normalisation_imputation.csv
 RNASeq/raw_data/count_matrix.txt
 RNASeq/raw_data/qc/
+RNASeq/genomeFiles/
+RNASeq/out_dir/
 
 # Output and raw data file types (anywhere in the project)
 *.pdf

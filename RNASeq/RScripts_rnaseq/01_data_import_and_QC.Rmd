@@ -38,6 +38,8 @@ library(limma)
 ```{r}
 projectDir <- "/home/melanie-smith/workDir/natashaHarvey/2026-shanna_hlec_FAT4_kd_flow_response"
 starDir <- file.path(projectDir, "RNASeq", "raw_data", "star_align")
+outDir <- file.path(projectDir, "RNASeq", "out_dir")
+gtfFile <- file.path(projectDir, "RNASeq", "genomeFiles", "gencode.v39.annotation.gtf")
 ```
 
 # Import data
@@ -164,6 +166,29 @@ sampleMeta <- tibble(sampleID = colnames(countMat)) %>%
 sampleMeta
 ```
 
+# Gene annotation
+
+Gene-level annotation from the GENCODE v39 GTF (the annotation used for STAR alignment). Keep only the gene records and extract the gene name, biotype and location for each versioned Ensembl ID. The table is saved to `out_dir` so later scripts don't need to re-read the GTF.
+
+```{r}
+geneAnno <- read_tsv(gtfFile, comment = "#", col_names = c("chr", "source", "type", "start", "end", "score", "strand", "frame", "attributes"),
+                     col_types = "cccddcccc") %>%
+  filter(type == "gene") %>%
+  mutate(GeneID   = str_extract(attributes, '(?<=gene_id ")[^"]+'),
+         geneName = str_extract(attributes, '(?<=gene_name ")[^"]+'),
+         geneType = str_extract(attributes, '(?<=gene_type ")[^"]+')) %>%
+  dplyr::select(GeneID, geneName, geneType, chr, start, end, strand)
+
+dim(geneAnno)
+stopifnot(n_distinct(geneAnno$GeneID) == nrow(geneAnno)) # one row per gene
+stopifnot(setequal(geneAnno$GeneID, rownames(countMat))) # annotation matches the count matrix exactly
+
+geneAnno <- geneAnno[match(rownames(countMat), geneAnno$GeneID), ] # same order as the count matrix
+count(geneAnno, geneType, sort = TRUE)
+
+saveRDS(geneAnno, file.path(outDir, "01_gene_annotation.rds"))
+```
+
 # Library sizes
 
 Library size here is the total number of reads assigned to genes in the count matrix (not the clusters passing filter in the SAGC report).
@@ -179,7 +204,7 @@ libSize
 ```
 
 ```{r, fig.width=7, fig.height=5}
-ggplot(libSize, aes(x = sampleID, y = libSize / 1e6, fill = group)) +
+libSizePlot <- ggplot(libSize, aes(x = sampleID, y = libSize / 1e6, fill = group)) +
   geom_col() +
   scale_fill_manual(values = c("Control_Static"   = "#6BAED6",
                                "Control_Laminar"  = "#08519C",
@@ -190,6 +215,9 @@ ggplot(libSize, aes(x = sampleID, y = libSize / 1e6, fill = group)) +
        title = "Library sizes") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+libSizePlot
+ggsave(file.path(outDir, "01_library_sizes.png"), libSizePlot, width = 7, height = 5, dpi = 300)
 ```
 
 # MDS of raw data
@@ -209,7 +237,7 @@ mdsDf <- tibble(sampleID = colnames(logCPM),
 ```
 
 ```{r, fig.width=7, fig.height=5}
-ggplot(mdsDf, aes(x = dim1, y = dim2, colour = group, shape = condition)) +
+mdsPlot <- ggplot(mdsDf, aes(x = dim1, y = dim2, colour = group, shape = condition)) +
   geom_point(size = 4) +
   geom_text(aes(label = sampleID), vjust = -1.2, size = 3, show.legend = FALSE) +
   scale_colour_manual(values = c("Control_Static"   = "#6BAED6",
@@ -220,6 +248,13 @@ ggplot(mdsDf, aes(x = dim1, y = dim2, colour = group, shape = condition)) +
        y = paste0("Leading logFC dim 2 (", varExplained[2], "%)"),
        title = "MDS of raw log2 CPM") +
   theme_bw()
+
+mdsPlot
+ggsave(file.path(outDir, "01_MDS_raw_logCPM.png"),
+       mdsPlot,
+       width = 7,
+       height = 5,
+       dpi = 300)
 ```
 
 # Session information
