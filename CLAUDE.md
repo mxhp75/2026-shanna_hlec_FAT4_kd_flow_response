@@ -174,3 +174,31 @@ All R scripts are RMarkdown (`.Rmd`). Reference example: `Protein/RScripts_prote
 
 **Closing section:**
 - `# Session information` with `sessionInfo()`
+
+---
+
+## HPC Script Style
+
+Bash/SLURM scripts for the Phoenix HPC (University of Adelaide). Reference examples: `RNASeq/hpc_scripts/scripts/`.
+
+**File naming and location:**
+- Two-digit numeric prefix + snake_case description, e.g. `03_umi_extract.sh`; numbered in run order
+- Local copies in `RNASeq/hpc_scripts/scripts/`, tracked in git; conda environment files in `RNASeq/hpc_scripts/`
+- HPC project scratch: `/scratchdata1/users/a1627211/scratch/2026-shanna_hlec_FAT4_kd_flow_response/`
+
+**SLURM header:**
+- `#SBATCH -p sacgf`; `-o`/`-e` to `<project scratch>/slurm_logs/<step>-%j.out/.err` (SLURM does not create this folder — it must exist)
+- `--mail-type=all`, `--mail-user=melanie.smith@adelaide.edu.au`, `-N 1`, then `-n`, `--time`, `--mem` sized per step
+
+**Environment:**
+- `module load Anaconda3/2025.06-1` → `source "$(conda info --base)/etc/profile.d/conda.sh"` → `conda activate <env>`; all tools from one conda environment
+- `set -euo pipefail` immediately **after** `conda activate` (conda scripts are not `-u` safe). Turn `pipefail` off around `zcat | head` pipes, and `-e` off for summary/report sections that grep logs
+- Conda environment files list `nodefaults` in `channels:` — the Anaconda3 module's default channels (e.g. `intel`) return 403. For `conda create`, use `--override-channels -c conda-forge -c bioconda`
+
+**Body:**
+- Uppercase full-path variables (e.g. `FASTQ_DIR`, `OUT_DIR`); `mkdir -p` output directories
+- Loop over samples via `*_R1*.fastq.gz`, derive `SAMPLE` with `basename`, check the R2 file exists, one output per sample
+- Write to new output folders; never overwrite raw data or earlier pipeline outputs
+- **Resume logic:** inside per-sample loops, skip samples already completed, keyed on an end-of-run marker in that sample's log (e.g. umi_tools extract "Reads output", cutadapt "Pairs written", STAR `Log.final.out` present, umi_tools dedup "Number of reads out"). A sample cut off mid-run has no marker and is re-run. Reason: a NODE_FAIL on 2026-10-07 caused SLURM to requeue `03_umi_extract.sh`, which restarted from the first sample
+- Test new pipelines on a small read subset (e.g. 1M pairs from 2 samples) before full runs
+- Submit multi-step chains with `sbatch --parsable` and `--dependency=afterok:<jobid>`
