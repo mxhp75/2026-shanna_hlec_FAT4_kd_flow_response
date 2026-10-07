@@ -68,7 +68,8 @@ RNASeq matched samples. RNA-seq data: paired-end FASTQ files, reverse-stranded l
 - 100bp PE sequencing using MGI DNBSEQ-G400 chemistry, run at R1: 100bp, R2: 100bp,
 Barcode: 10bp, Dual Barcode: 10bp
 - **Provider:** South Australian Genomics Centre (SAGC); quality report `RNASeq/raw_data/SAGCQR2280_KellyBetterman_18092026_NGSQualityReport.pdf` (quote SAGCQA2280)
-- **Library prep:** stranded mRNA, QIAseq FastSelect protocol, 20 amplification cycles
+- **Library prep:** QIAseq FastSelect RNA Library Kit (stranded, rRNA removal with FastSelect, template-switching RT), 20 amplification cycles. Handbook HB-3152-003 (03/2025): `RNASeq/docs/HB-3152-003_HB_QIAseq_FastSelect_RNA_Library_Kit_0325_WW.pdf`. SAGC confirmed by email (2026-10-08) that UMIs were included
+  - 20 cycles is the handbook's setting for **100 ng total RNA input** (Table 12: 1 ng = 27, 10 ng = 23, 100 ng = 20, 1 µg = 17 cycles). Handbook recommends RIN ≥ 8 and DV200 ≥ 35%, and ~15–20M reads per sample at 100 ng input (Table 3)
 - **Run:** 1 lane, 13 libraries (12 samples + SAGC negative control); ~521M clusters total (456M assigned to the 12 samples, 65.6M undetermined) per SAGC MultiQC; sequenced 10/09/2026
 - **Counts (current, from 2026-10-08):** UMI-deduplicated featureCounts matrix `RNASeq/raw_data/umi_processing/featurecounts/featurecounts_dedup.txt` (`-p --countReadPairs -s 2`; fragments). `GeneID` = versioned Ensembl IDs (GENCODE). Produced by the UMI pipeline in `RNASeq/hpc_scripts/scripts/`; per-step logs and MultiQC in `RNASeq/raw_data/umi_processing/`
 - **Counts (superseded):** STAR `ReadsPerGene.out.tab` column 4 from the original alignment of untrimmed reads, not UMI-deduplicated — archived in `RNASeq/20261007_archive_out_dir/star_align/`. `count_matrix.txt` was built with a `paste` bug that scrambled counts — do not use
@@ -120,13 +121,13 @@ Barcode: 10bp, Dual Barcode: 10bp
 
 **Read structure (confirmed from FASTQ, 2026-10-06; same in all 12 samples):**
 - **R2:** `N` (pos 1, no-call) + **10 nt random (UMI-like)** (pos 2–11) + fixed **`GCA`** (pos 12–14) + **`GGG`** (pos 15–17, template-switching signature) + insert from pos ~18. A minority of reads show a 1-base shift or lack the linker
+- **Handbook vs data:** handbook Figure 2 shows the template-switching oligo as `[adapter]–[10 bp]–GCAGGG`, confirming the linker and layout. The handbook labels the 10 bp a fixed per-well "sample ID" and never mentions UMIs, but the data show it is random per molecule, with no fixed per-sample sequence anywhere in R2; together with SAGC's confirmation that UMIs were included, it is treated as the UMI. Samples are demultiplexed by the UDI index reads. The R1 leading `TTT` is not documented in the handbook
 - UMI evidence: 529,407 distinct pos 2–11 10-mers in 1M R2 reads (S1), most frequent seen 32 times — near-random, not transcript-derived. R2 deduplicated % (21–35%) is also much higher than R1 (5–11%)
 - **R1:** `TTT` (pos 1–3, ~70–78% T, short fixed sequence — not oligo-dT) + insert; identical across samples. **Confirmed no UMI in R1:** pos 4–13 10-mers in 1M R1 reads (S1) — 280,936 distinct, most frequent seen 3,835× (vs 529,407 distinct / max 32× for R2 pos 2–11); top R1 sequences match the FastQC overrepresented sequences (abundant transcripts)
 - Base composition from FastQC is binned in pairs after base 9; exact positions were confirmed from raw R2 reads
 - **Original counts (STAR `ReadsPerGene`, column 4, untrimmed reads) were NOT UMI-deduplicated** — STAR soft-clipped the R2 linker/UMI (hence normal mapping rates). Superseded 2026-10-08 by the UMI-deduplicated counts below
 
 **Pending (as of 2026-10-08):**
-- Library kit used with QIAseq FastSelect — to be confirmed by Shanna (lab book) or SAGC. UMI extraction/trimming parameters were set from the observed read structure; check against the kit manual when known
 - Shanna is checking lab book notes for any processing differences in FLMT16, FSMT17, CLMT17, and (new) RNA input amount/quality per sample
 - Re-run 01/02 on the deduplicated counts: does the GC-bias dim 1 split persist, and does it track library complexity? If it persists, apply cqn GC correction
 
