@@ -7,7 +7,7 @@
 
 **To:** Ayla Orang <ayla.orang@sahmri.com>
 **Cc:** Kelly Betterman
-**Subject:** Discrepancy in NGS Quality Report SAGCQR2280 (quote SAGCQA2280): clusters passing filter
+**Subject:** SAGCQA2280: quality report discrepancy (clusters passing filter)
 
 Dear Ayla,
 
@@ -36,7 +36,7 @@ The FASTQ files themselves are fine. The md5 checksums passed, and the read coun
 Could you please:
 
 1. Confirm that the MultiQC / FASTQ values are correct, and issue a corrected quality report, since we'd like to cite accurate numbers in our methods.
-2. Confirm that the other columns in the PDF table are correct for each sample, and that the ULN → sample name mapping is correct: library concentration, index sequences and average fragment size. The mapping does match the sample renaming in the MultiQC report.
+2. Confirm that the other per-sample values in the PDF table (library concentration, index sequences and average fragment size) are correct, and that the ULN → sample name mapping is correct. The mapping does match the sample renaming in the MultiQC report.
 
 Many thanks,
 Melanie Smith
