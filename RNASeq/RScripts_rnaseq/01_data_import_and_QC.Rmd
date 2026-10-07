@@ -37,14 +37,77 @@ library(limma)
 
 ```{r}
 projectDir <- "/home/melanie-smith/workDir/natashaHarvey/2026-shanna_hlec_FAT4_kd_flow_response"
-starDir <- file.path(projectDir, "RNASeq", "raw_data", "star_align")
+umiDir <- file.path(projectDir, "RNASeq", "raw_data", "umi_processing") # UMI pipeline outputs copied from the HPC
+countsFile <- file.path(umiDir, "featurecounts", "featurecounts_dedup.txt")
+multiqcDir <- file.path(umiDir, "multiqc_umi", "multiqc_data")
+starDir <- file.path(umiDir, "star_align_umi")
 outDir <- file.path(projectDir, "RNASeq", "out_dir")
 gtfFile <- file.path(projectDir, "RNASeq", "genomeFiles", "gencode.v39.annotation.gtf")
+
+dir.create(outDir, showWarnings = FALSE) # out_dir was archived on 2026-10-07; recreate it if missing
 ```
 
 # Import data
 
-STAR `ReadsPerGene.out.tab` files, one per library in `star_align/<ULN>/`. The first four rows are STAR summary counts (`N_unmapped`, `N_multimapping`, `N_noFeature`, `N_ambiguous`); the remaining rows are genes. Columns are: gene ID, unstranded counts, forward-stranded counts (read 1 on the gene strand), and reverse-stranded counts (read 1 on the opposite strand).
+UMI-deduplicated gene counts from featureCounts (`-p --countReadPairs -s 2`, see `RNASeq/hpc_scripts/scripts/`). One row per gene (versioned Ensembl ID) with annotation columns (`Chr`, `Start`, `End`, `Strand`, `Length`), then one column per library named by the full path of its deduplicated BAM. Counts are fragments (read pairs).
+
+```{r}
+fcCounts <- read_tsv(countsFile, comment = "#", show_col_types = FALSE)
+
+# simplify column names to the SAGC ULN, e.g. ".../umi_dedup/26-03807_S1_L03.dedup.bam" -> "26-03807_S1_L03"
+colnames(fcCounts) <- str_replace(colnames(fcCounts), "^.*/(26-\\d{5}_S\\d+_L03)\\.dedup\\.bam$", "\\1")
+
+dim(fcCounts)
+stopifnot(n_distinct(fcCounts$Geneid) == nrow(fcCounts)) # one row per gene
+
+rawCountMat <- fcCounts %>%
+  dplyr::select(Geneid, starts_with("26-")) %>%
+  column_to_rownames("Geneid") %>%
+  as.matrix()
+
+dim(rawCountMat)
+stopifnot(ncol(rawCountMat) == 13) # 12 samples + SAGC negative control
+stopifnot(!anyNA(rawCountMat), all(rawCountMat >= 0)) # complete, non-negative counts
+```
+
+# Pipeline QC summary
+
+Per-library metrics for each step of the UMI pipeline, from the MultiQC tables: UMI extraction pass rate, read pairs kept after trimming, STAR mapping, UMI deduplication (`dedupKept` = % of mapped reads that are unique molecules, i.e. library complexity) and deduplicated fragments assigned to genes by featureCounts.
+
+```{r}
+ulnPattern <- "26-\\d{5}_S\\d+_L03" # SAGC ULN, used to match sample names across the MultiQC tables
+
+pipelineQC <- read_tsv(file.path(multiqcDir, "multiqc_umitools_extract.txt"), show_col_types = FALSE) %>%
+  transmute(ULN         = str_extract(Sample, ulnPattern),
+            inputPairs  = extract_input_reads,
+            extractPass = extract_percent_passing) %>%
+  left_join(read_tsv(file.path(multiqcDir, "multiqc_cutadapt.txt"), show_col_types = FALSE) %>%
+              transmute(ULN          = str_extract(Sample, ulnPattern),
+                        trimmedPairs = pairs_written),
+            by = "ULN") %>%
+  left_join(read_tsv(file.path(multiqcDir, "multiqc_star.txt"), show_col_types = FALSE) %>%
+              transmute(ULN            = str_extract(Sample, ulnPattern),
+                        uniquelyMapped = uniquely_mapped_percent,
+                        multiMapped    = multimapped_percent),
+            by = "ULN") %>%
+  left_join(read_tsv(file.path(multiqcDir, "multiqc_umitools_dedup.txt"), show_col_types = FALSE) %>%
+              transmute(ULN           = str_extract(Sample, ulnPattern),
+                        dedupKept     = dedup_percent_passing,
+                        meanUMIperPos = mean_umi_per_pos),
+            by = "ULN") %>%
+  left_join(read_tsv(paste0(countsFile, ".summary"), show_col_types = FALSE) %>%
+              filter(Status == "Assigned") %>%
+              pivot_longer(-Status, names_to = "Sample", values_to = "assignedFragments") %>%
+              transmute(ULN = str_extract(Sample, ulnPattern), assignedFragments),
+            by = "ULN")
+
+stopifnot(nrow(pipelineQC) == 13, !anyNA(pipelineQC)) # one complete row per library
+pipelineQC
+```
+
+# Strandedness
+
+STAR `ReadsPerGene.out.tab` from the alignment of the UMI-extracted, trimmed reads (before deduplication), one per library in `star_align_umi/<ULN>/`. The first four rows are STAR summary counts (`N_unmapped`, `N_multimapping`, `N_noFeature`, `N_ambiguous`); the remaining rows are genes. Columns are: gene ID, unstranded counts, forward-stranded counts (read 1 on the gene strand), and reverse-stranded counts (read 1 on the opposite strand). The library prep is reverse-stranded, so nearly all gene-assigned reads should be in the reverse column. Check each library using the forward fraction, forward / (forward + reverse), and keep the reverse-stranded counts as the trimmed, not deduplicated, count matrix for comparison with the deduplicated counts.
 
 ```{r}
 ulnIDs <- list.files(starDir) # one sub-directory per library, named by the SAGC ULN
@@ -59,43 +122,7 @@ stopifnot(all(map_lgl(readsPerGene, ~ identical(.x$GeneID, geneIDs)))) # same ge
 stopifnot(identical(head(geneIDs, 4), c("N_unmapped", "N_multimapping", "N_noFeature", "N_ambiguous"))) # STAR summary rows first
 
 readsPerGeneLong <- bind_rows(readsPerGene, .id = "ULN")
-```
 
-# STAR alignment summary
-
-Key alignment metrics from each library's STAR `Log.final.out`.
-
-```{r}
-file.path(starDir, ulnIDs, "Log.final.out") %>%
-  set_names(ulnIDs) %>%
-  map(~ read_lines(.x) %>%
-        str_subset(fixed("|")) %>% # drop section headers (e.g. "UNIQUE READS:") and blank lines, which have no "|"
-        I() %>%
-        read_delim(delim = "|", col_names = c("metric", "value"), trim_ws = TRUE, show_col_types = FALSE)) %>%
-  bind_rows(.id = "ULN") %>%
-  filter(metric %in% c("Number of input reads", "Uniquely mapped reads %",
-                       "% of reads mapped to multiple loci", "% of reads unmapped: too short")) %>%
-  pivot_wider(names_from = metric, values_from = value)
-```
-
-# STAR assignment summary
-
-Per-library STAR summary counts (reverse-stranded column) alongside the number of reads assigned to genes.
-
-```{r}
-readsPerGeneLong %>%
-  dplyr::select(ULN, GeneID, reverse) %>%
-  mutate(GeneID = if_else(str_starts(GeneID, "N_"), GeneID, "assigned")) %>%
-  group_by(ULN, GeneID) %>%
-  summarise(reads = sum(reverse), .groups = "drop") %>%
-  pivot_wider(names_from = GeneID, values_from = reads)
-```
-
-# Strandedness
-
-The library prep is reverse-stranded, so nearly all gene-assigned reads should be in the reverse column. Check each library using the forward fraction, forward / (forward + reverse), then build the raw count matrix from the reverse-stranded counts.
-
-```{r}
 strandedness <- readsPerGeneLong %>%
   filter(!str_starts(GeneID, "N_")) %>%
   group_by(ULN) %>%
@@ -107,20 +134,23 @@ strandedness <- readsPerGeneLong %>%
 strandedness
 stopifnot(all(strandedness$fracForward[strandedness$ULN != "26-03819_S13_L03"] < 0.1)) # all real libraries reverse-stranded
 
-rawCountMat <- readsPerGeneLong %>%
+trimCountMat <- readsPerGeneLong %>%
   filter(!str_starts(GeneID, "N_")) %>%
   dplyr::select(ULN, GeneID, reverse) %>% # reverse-stranded counts (column 4)
   pivot_wider(names_from = ULN, values_from = reverse) %>%
   column_to_rownames("GeneID") %>%
   as.matrix()
 
-dim(rawCountMat)
-stopifnot(!anyNA(rawCountMat), all(rawCountMat >= 0)) # complete, non-negative counts
+stopifnot(setequal(rownames(trimCountMat), rownames(rawCountMat)), setequal(colnames(trimCountMat), colnames(rawCountMat))) # same genes and libraries as the deduplicated counts
+trimCountMat <- trimCountMat[rownames(rawCountMat), colnames(rawCountMat)] # same order as the deduplicated counts
+
+dim(trimCountMat)
+stopifnot(!anyNA(trimCountMat), all(trimCountMat >= 0)) # complete, non-negative counts
 ```
 
 # QC of the SAGC negative control
 
-Library `26-03819_S13_L03` is the SAGC negative control (library conc. <0.1 ng/uL, 2,690 read pairs; the 31.7M clusters passing filter in the SAGC PDF report is an error). Compare the number of reads assigned to genes and the number of genes detected against the real libraries before removing it.
+Library `26-03819_S13_L03` is the SAGC negative control (library conc. <0.1 ng/uL, 2,690 read pairs; the 31.7M clusters passing filter in the SAGC PDF report is an error). Compare the number of deduplicated fragments assigned to genes and the number of genes detected against the real libraries before removing it.
 
 ```{r}
 tibble(ULN           = colnames(rawCountMat),
@@ -151,6 +181,9 @@ sampleKey <- tribble(
 
 countMat <- rawCountMat[, sampleKey$ULN]
 colnames(countMat) <- sampleKey$sampleID
+
+trimCountMat <- trimCountMat[, sampleKey$ULN] # trimmed, not deduplicated, for comparison
+colnames(trimCountMat) <- sampleKey$sampleID
 
 dim(countMat)
 stopifnot(ncol(countMat) == 12, !"26-03819_S13_L03" %in% colnames(countMat)) # 12 samples, negative control removed
@@ -197,7 +230,7 @@ saveRDS(geneAnno, file.path(outDir, "01_gene_annotation.rds"))
 
 # Library sizes
 
-Library size here is the total number of reads assigned to genes in the count matrix (not the clusters passing filter in the SAGC report).
+Library size here is the total number of UMI-deduplicated fragments assigned to genes in the count matrix (not the clusters passing filter in the SAGC report).
 
 ```{r}
 libSize <- tibble(sampleID = colnames(countMat),
@@ -217,8 +250,8 @@ libSizePlot <- ggplot(libSize, aes(x = sampleID, y = libSize / 1e6, fill = group
                                "FAT4 KO_Static"   = "#FD8D3C",
                                "FAT4 KO_Laminar"  = "#A63603")) +
   labs(x = NULL,
-       y = "Library size (million assigned reads)",
-       title = "Library sizes") +
+       y = "Library size (million deduplicated fragments)",
+       title = "Library sizes (UMI-deduplicated)") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
@@ -226,9 +259,51 @@ libSizePlot
 ggsave(file.path(outDir, "01_library_sizes.png"), libSizePlot, width = 7, height = 5, dpi = 300)
 ```
 
+# Library size and gene detection before and after deduplication
+
+Compare the trimmed, not deduplicated, STAR counts with the UMI-deduplicated featureCounts counts. `pctRetained` is the % of gene-assigned fragments that are unique molecules. STAR GeneCounts and featureCounts use slightly different assignment rules, so the comparison is approximate. The per-library pipeline QC, with sample IDs, is saved for the GC content vs library complexity comparison in `02_filter_normalise_MDS.Rmd`.
+
+```{r}
+dedupComparison <- tibble(sampleID       = colnames(countMat),
+                          libSizeTrimmed = colSums(trimCountMat),
+                          libSizeDedup   = colSums(countMat),
+                          genesTrimmed   = colSums(trimCountMat > 0),
+                          genesDedup     = colSums(countMat > 0)) %>%
+  mutate(pctRetained = 100 * libSizeDedup / libSizeTrimmed) %>%
+  left_join(sampleMeta, by = "sampleID") %>%
+  arrange(genotype, condition)
+
+dedupComparison
+
+pipelineQC %>%
+  left_join(sampleKey, by = "ULN") %>% # sampleID is NA for the negative control
+  write_csv(file.path(outDir, "01_pipeline_QC.csv"))
+```
+
+```{r, fig.width=8, fig.height=5}
+dedupPlot <- dedupComparison %>%
+  mutate(sampleID = factor(sampleID, levels = sampleID)) %>% # order samples by group on the x-axis
+  dplyr::select(sampleID, libSizeTrimmed, libSizeDedup) %>%
+  pivot_longer(-sampleID, names_to = "stage", values_to = "libSize") %>%
+  mutate(stage = factor(stage, levels = c("libSizeTrimmed", "libSizeDedup"), labels = c("Before deduplication", "After deduplication"))) %>%
+  ggplot(aes(x = sampleID, y = libSize / 1e6, fill = stage)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = c("Before deduplication" = "grey70",
+                               "After deduplication"  = "grey20")) +
+  labs(x = NULL,
+       y = "Library size (million fragments assigned to genes)",
+       fill = NULL,
+       title = "Library sizes before and after UMI deduplication") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+dedupPlot
+ggsave(file.path(outDir, "01_library_sizes_before_after_dedup.png"), dedupPlot, width = 8, height = 5, dpi = 300)
+```
+
 # MDS of raw data
 
-MDS of the unfiltered, unnormalised counts on the log2 CPM scale. `plotMDS` uses the top 500 genes by leading log2 fold change between each pair of samples.
+MDS of the unfiltered, unnormalised UMI-deduplicated counts on the log2 CPM scale. `plotMDS` uses the top 500 genes by leading log2 fold change between each pair of samples.
 
 ```{r}
 logCPM <- edgeR::cpm(countMat, log = TRUE)
@@ -252,7 +327,7 @@ mdsPlot <- ggplot(mdsDf, aes(x = dim1, y = dim2, colour = group, shape = conditi
                                  "FAT4 KO_Laminar"  = "#A63603")) +
   labs(x = paste0("Leading logFC dim 1 (", varExplained[1], "%)"),
        y = paste0("Leading logFC dim 2 (", varExplained[2], "%)"),
-       title = "MDS of raw log2 CPM") +
+       title = "MDS of raw log2 CPM (UMI-deduplicated)") +
   theme_bw()
 
 mdsPlot
