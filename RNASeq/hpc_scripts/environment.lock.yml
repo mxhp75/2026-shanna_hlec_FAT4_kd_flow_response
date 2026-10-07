@@ -1,9 +1,9 @@
 name: hlec_umi
+# channels edited after export: intel/defaults (inherited from the Anaconda3 module condarc, 403) replaced with nodefaults
 channels:
   - bioconda
   - conda-forge
-  - intel
-  - defaults
+  - nodefaults
 dependencies:
   - _openmp_mutex=4.5=20_gnu
   - _python_abi3_support=1.0=hd8ed1ab_3
