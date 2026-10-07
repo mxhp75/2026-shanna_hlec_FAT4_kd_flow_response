@@ -74,7 +74,7 @@ Barcode: 10bp, Dual Barcode: 10bp
 - **Counts (superseded):** STAR `ReadsPerGene.out.tab` column 4 from the original alignment of untrimmed reads, not UMI-deduplicated — archived in `RNASeq/20261007_archive_out_dir/star_align/`. `count_matrix.txt` was built with a `paste` bug that scrambled counts — do not use
 - **Annotation:** GENCODE v39 (GRCh38) — `RNASeq/genomeFiles/gencode.v39.annotation.gtf`; gene IDs match the STAR counts exactly (61,533 genes)
 - **Negative control:** `26-03819_S13_L03` (`SAGC_negative`, <0.1 ng/uL library, 2,690 read pairs) — dropped from analysis
-- **SAGC PDF report error:** the "Total Clusters Passing Filter" column in SAGCQR2280 does not match SAGC's own MultiQC/demultiplexing or the FASTQs (e.g. CL18 reported 18.2M, actual 47.4M). Use the MultiQC values (`RNASeq/raw_data/qc/sagcQC/multiqc_report.html`). ULN → sample mapping is confirmed by SAGC MultiQC.
+- **SAGC PDF report error:** the "Total Clusters Passing Filter" column in SAGCQR2280 does not match SAGC's own MultiQC/demultiplexing or the FASTQs (e.g. CL18 reported 18.2M, actual 47.4M). Use the MultiQC values (`RNASeq/raw_data/qc/sagcQC/multiqc_report.html`). ULN → sample mapping is confirmed by SAGC MultiQC. Correction requested from SAGC by email, 2026-10-08; awaiting reply.
 - **ULN → sample ID mapping** (report short name in brackets):
 
 | ULN              | Sample ID     | ULN              | Sample ID     |
