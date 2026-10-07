@@ -8,7 +8,7 @@
 #SBATCH --mail-user=melanie.smith@adelaide.edu.au
 #SBATCH -N 1
 #SBATCH -n 2
-#SBATCH --time=10:00:00
+#SBATCH --time=12:00:00
 #SBATCH --mem=8GB
 
 module load Anaconda3/2025.06-1
