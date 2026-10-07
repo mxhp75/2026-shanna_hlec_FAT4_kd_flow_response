@@ -9,6 +9,7 @@ name: hlec_umi
 channels:
   - conda-forge
   - bioconda
+  - nodefaults   # do not use the default channels from the Anaconda3 module's condarc (e.g. 'intel', which returns 403)
 dependencies:
   - star=2.7.11b
   - samtools=1.24
