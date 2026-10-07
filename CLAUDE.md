@@ -70,7 +70,8 @@ Barcode: 10bp, Dual Barcode: 10bp
 - **Provider:** South Australian Genomics Centre (SAGC); quality report `RNASeq/raw_data/SAGCQR2280_KellyBetterman_18092026_NGSQualityReport.pdf` (quote SAGCQA2280)
 - **Library prep:** stranded mRNA, QIAseq FastSelect protocol, 20 amplification cycles
 - **Run:** 1 lane, 13 libraries (12 samples + SAGC negative control); ~521M clusters total (456M assigned to the 12 samples, 65.6M undetermined) per SAGC MultiQC; sequenced 10/09/2026
-- **Counts:** built in R from STAR `RNASeq/raw_data/star_align/<ULN>/ReadsPerGene.out.tab` using column 4 (reverse-stranded; forward fraction ≈ 0.05). `GeneID` = versioned Ensembl IDs (GENCODE). `count_matrix.txt` was built with a `paste` bug that scrambled counts — do not use
+- **Counts (current, from 2026-10-08):** UMI-deduplicated featureCounts matrix `RNASeq/raw_data/umi_processing/featurecounts/featurecounts_dedup.txt` (`-p --countReadPairs -s 2`; fragments). `GeneID` = versioned Ensembl IDs (GENCODE). Produced by the UMI pipeline in `RNASeq/hpc_scripts/scripts/`; per-step logs and MultiQC in `RNASeq/raw_data/umi_processing/`
+- **Counts (superseded):** STAR `ReadsPerGene.out.tab` column 4 from the original alignment of untrimmed reads, not UMI-deduplicated — archived in `RNASeq/20261007_archive_out_dir/star_align/`. `count_matrix.txt` was built with a `paste` bug that scrambled counts — do not use
 - **Annotation:** GENCODE v39 (GRCh38) — `RNASeq/genomeFiles/gencode.v39.annotation.gtf`; gene IDs match the STAR counts exactly (61,533 genes)
 - **Negative control:** `26-03819_S13_L03` (`SAGC_negative`, <0.1 ng/uL library, 2,690 read pairs) — dropped from analysis
 - **SAGC PDF report error:** the "Total Clusters Passing Filter" column in SAGCQR2280 does not match SAGC's own MultiQC/demultiplexing or the FASTQs (e.g. CL18 reported 18.2M, actual 47.4M). Use the MultiQC values (`RNASeq/raw_data/qc/sagcQC/multiqc_report.html`). ULN → sample mapping is confirmed by SAGC MultiQC.
@@ -122,12 +123,21 @@ Barcode: 10bp, Dual Barcode: 10bp
 - UMI evidence: 529,407 distinct pos 2–11 10-mers in 1M R2 reads (S1), most frequent seen 32 times — near-random, not transcript-derived. R2 deduplicated % (21–35%) is also much higher than R1 (5–11%)
 - **R1:** `TTT` (pos 1–3, ~70–78% T, short fixed sequence — not oligo-dT) + insert; identical across samples. **Confirmed no UMI in R1:** pos 4–13 10-mers in 1M R1 reads (S1) — 280,936 distinct, most frequent seen 3,835× (vs 529,407 distinct / max 32× for R2 pos 2–11); top R1 sequences match the FastQC overrepresented sequences (abundant transcripts)
 - Base composition from FastQC is binned in pairs after base 9; exact positions were confirmed from raw R2 reads
-- **Current counts (STAR `ReadsPerGene`, column 4) are NOT UMI-deduplicated and the R2 linker/UMI was not trimmed** — STAR soft-clipped it (hence normal mapping rates)
+- **Original counts (STAR `ReadsPerGene`, column 4, untrimmed reads) were NOT UMI-deduplicated** — STAR soft-clipped the R2 linker/UMI (hence normal mapping rates). Superseded 2026-10-08 by the UMI-deduplicated counts below
 
-**Pending (as of 2026-10-06):**
-- Library kit used with QIAseq FastSelect — to be confirmed by Shanna (lab book) or SAGC. The kit manual should define the exact UMI length, linker and R1 leading bases. Do not finalise UMI extraction/trimming parameters until known
-- Shanna is checking lab book notes for any processing differences in FLMT16, FSMT17, CLMT17
-- Proposed re-processing once the kit is known: `umi_tools extract` (R2 regex: N + 10-nt UMI + `GCAGGG`) → adapter/leading-base trim → STAR (GRCh38 / GENCODE v39) → `umi_tools dedup --paired` → `featureCounts -p -s 2`. Then re-run 01/02 and check whether the GC-bias dim 1 split persists; if so, apply cqn GC correction
+**Pending (as of 2026-10-08):**
+- Library kit used with QIAseq FastSelect — to be confirmed by Shanna (lab book) or SAGC. UMI extraction/trimming parameters were set from the observed read structure; check against the kit manual when known
+- Shanna is checking lab book notes for any processing differences in FLMT16, FSMT17, CLMT17, and (new) RNA input amount/quality per sample
+- Re-run 01/02 on the deduplicated counts: does the GC-bias dim 1 split persist, and does it track library complexity? If it persists, apply cqn GC correction
+
+**UMI re-processing results (completed 2026-10-08; HPC jobs 16285263–16285268, all COMPLETED):**
+- Pipeline: `umi_tools extract` (R2: N + 10-nt UMI + `GCAGGG`, 1 mismatch) → `cutadapt` (R1 `-u 3`, Illumina + MGI adapters, `-q 20`, min length 30) → STAR 2.7.11b (original index/settings) → `umi_tools dedup --paired` (NH multimapping detection) → `featureCounts -p --countReadPairs -s 2`
+- Extraction 97.0–97.3% pass; cutadapt keeps ~97% of pairs; STAR 94.8–96.7% uniquely mapped; strandedness unchanged (reverse)
+- **Libraries are extremely duplicated (low complexity): only 2.6–14.5% of mapped reads are unique molecules (85–97% PCR duplicates).** Not a dedup artefact: FastQC R1 sequence-level dedup (no UMIs) was also only 5–11%, and mean UMIs per position is ~1.2–1.3 (10-nt UMI not saturated)
+- Deduplicated fragments assigned to genes per sample (vs ~24–41M before dedup): CSMT16 4.20M (14.5% kept), FSMT16 2.87M (8.0%), CLMT16 **0.84M** (3.4%), FLMT16 3.25M (13.8%), CSMT17 **0.75M** (2.6%), FSMT17 3.59M (12.7%), CLMT17 4.36M (14.4%), FLMT17 **1.04M** (3.5%), CSMT18 2.37M (6.4%), FSMT18 1.95M (5.3%), CLMT18 2.93M (7.3%), FLMT18 1.97M (5.6%). ~6-fold range; CSMT17, CLMT16 and FLMT17 are very low depth
+- **Use the deduplicated counts** for analysis: non-deduplicated counts count PCR copies of the same molecule, inflating evidence and distorting variance
+- **Hypothesis (untested):** the three GC-bias samples (FLMT16, FSMT17, CLMT17) are among the most complex libraries (12.7–14.4% kept, with CSMT16). GC-rich fragments amplify less efficiently, so heavily over-amplified libraries may be depleted of them — the "biased" samples may be the less over-amplified ones. Test by comparing GC metrics with complexity and re-running MDS on deduplicated counts
+- Likely cause of low complexity: low RNA input and/or over-amplification (20 PCR cycles) — ask Shanna for RNA input amounts
 
 ---
 
