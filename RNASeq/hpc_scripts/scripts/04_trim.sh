@@ -40,13 +40,14 @@ for R1 in "$IN_DIR"/*_R1.umi.fastq.gz; do
     echo "Trimming $SAMPLE"
 
     # -u 3: remove the fixed TTT at the 5' end of R1 (the R2 N/UMI/linker were already removed by umi_tools extract)
-    # -a/-A: 3' adapter read-through - Illumina universal (AGATCGGAAGAGC) and MGI R1/R2 adapters, as the kit is not yet confirmed
+    # -a/-A: 3' adapter read-through - Illumina adapter core (AGATCGGAAGAGC; QIAseq UX IL UDI libraries, converted to MGI by SAGC).
+    #        The MGI R1/R2 adapters used in the 2026-10-07 run only gave chance matches of <=5 nt (read-through stops at the Illumina adapter), so they were removed
     # -q 20: 3' quality trimming; --minimum-length 30: discard the pair if either read is shorter than 30 nt after trimming
     cutadapt \
         -j 8 \
         -u 3 \
-        -a AGATCGGAAGAGC -a AAGTCGGAGGCCAAGCGGTCTTAGGAAGACAA \
-        -A AGATCGGAAGAGC -A AAGTCGGATCGTAGCCATGTCGTTCTGTGAGCCAAGGAGTTG \
+        -a AGATCGGAAGAGC \
+        -A AGATCGGAAGAGC \
         -q 20 \
         --minimum-length 30 \
         -o "$OUT_DIR/${SAMPLE}_R1.trimmed.fastq.gz" \
