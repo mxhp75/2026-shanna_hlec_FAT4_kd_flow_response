@@ -34,7 +34,7 @@ Gene counts came from column 4 (reverse-stranded) of each `ReadsPerGene.out.tab`
 
 A closer look at the per-base sequence content in FastQC, then at the raw reads, showed a fixed structure at the start of every read:
 
-- **R2:** `N` + **10-nt random sequence (UMI)** + `GCAGGG` linker, with the insert starting at about base 18. Positions 2–11 are near-random (529k distinct 10-mers per 1M reads), as expected for a UMI.
+- **R2:** a fixed `A` + **10-nt random sequence (UMI)** + `GCAGGG` linker, with the insert starting at about base 18. Positions 2–11 are near-random (529k distinct 10-mers per 1M reads), as expected for a UMI.
 - **R1:** a fixed `TTT`, then the insert. R1 has no UMI.
 
 The original alignment soft-clipped this sequence, so mapping rates looked normal. However, the counts were **not UMI-deduplicated**, and the linker was never trimmed.
