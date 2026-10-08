@@ -15,7 +15,7 @@ knitr::opts_chunk$set(echo = TRUE)
 rm(list = ls(all.names = TRUE)) # will clear all objects includuing hidden objects
 gc() # free up memory and report the memory usage
 options(max.print = .Machine$integer.max, scipen = 999, stringsAsFactors = FALSE, dplyr.summarise.inform = FALSE) # Print everything without truncation, avoid scientific notation, keep strings as characters, silence dplyr’s “grouped output” informational messages
-set.seed(42) # set seed for reprodcibility
+set.seed(42) # set seed for reproducibility
 ```
 
 # Load Libraries
@@ -42,16 +42,19 @@ outDir <- file.path(projectDir, "RNASeq", "out_dir")
 
 # Import data
 
-Outputs of `01_data_import_and_QC.Rmd`: the raw count matrix (12 samples, renamed to the protein sample IDs, negative control removed), the sample metadata and the GENCODE v39 gene annotation.
+Outputs of `01_data_import_and_QC.Rmd`: the UMI-deduplicated raw count matrix (12 samples, renamed to the protein sample IDs, negative control removed), the sample metadata, the GENCODE v39 gene annotation and the per-library pipeline QC (including `dedupKept`, the % of mapped reads that are unique molecules).
 
 ```{r}
 countMat <- readRDS(file.path(outDir, "01_count_matrix.rds"))
 sampleMeta <- readRDS(file.path(outDir, "01_sample_metadata.rds"))
 geneAnno <- readRDS(file.path(outDir, "01_gene_annotation.rds"))
+pipelineQC <- read_csv(file.path(outDir, "01_pipeline_QC.csv"), show_col_types = FALSE) %>%
+  filter(!is.na(sampleID)) # drop the SAGC negative control
 
 dim(countMat)
 stopifnot(identical(colnames(countMat), sampleMeta$sampleID)) # samples in the same order
 stopifnot(identical(rownames(countMat), geneAnno$GeneID)) # genes in the same order
+stopifnot(setequal(pipelineQC$sampleID, sampleMeta$sampleID)) # pipeline QC for every sample
 
 groupLevels <- c("Control_Static", "Control_Laminar", "FAT4 KO_Static", "FAT4 KO_Laminar")
 ```
@@ -177,6 +180,51 @@ mds34Plot
 ggsave(file.path(outDir, "02_MDS_TMM_logCPM_dim3-4.png"), mds34Plot, width = 7, height = 5, dpi = 300)
 ```
 
+# MDS without the GC-bias samples
+
+FLMT16, FSMT17 and CLMT17 carry a library-specific high-GC read signature (see the RNA-seq QC findings in `CLAUDE.md`) and dominate dim 1. Repeat filtering, TMM normalisation and MDS on the other nine samples to check whether flow (Laminar vs Static) becomes the main axis. With the three removed, the smallest group has 2 samples, so `filterByExpr` uses that as its minimum.
+
+```{r}
+gcBiasSamples <- c("FLMT16", "FSMT17", "CLMT17") # GC-bias libraries (CLAUDE.md, RNA-seq QC findings)
+
+dgeNoGC <- dgeAll[, !colnames(dgeAll) %in% gcBiasSamples]
+dgeNoGC$samples$group <- droplevels(dgeNoGC$samples$group)
+table(dgeNoGC$samples$group)
+
+keepNoGC <- filterByExpr(dgeNoGC, group = dgeNoGC$samples$group)
+table(keepNoGC)
+
+dgeNoGC <- normLibSizes(dgeNoGC[keepNoGC, , keep.lib.sizes = FALSE]) # TMM
+logCPMNoGC <- cpm(dgeNoGC, log = TRUE)
+
+mdsNoGC <- plotMDS(logCPMNoGC, plot = FALSE)
+varExplainedNoGC <- round(100 * mdsNoGC$var.explained, 1)
+
+mdsNoGCDf <- tibble(sampleID = colnames(logCPMNoGC),
+                    dim1     = mdsNoGC$x,
+                    dim2     = mdsNoGC$y) %>%
+  left_join(sampleMeta, by = "sampleID")
+
+write_csv(mdsNoGCDf, file.path(outDir, "02_MDS_coordinates_noGCtrio.csv"))
+```
+
+```{r, fig.width=7, fig.height=5}
+mdsNoGCPlot <- ggplot(mdsNoGCDf, aes(x = dim1, y = dim2, colour = group, shape = condition)) +
+  geom_point(size = 4) +
+  geom_text(aes(label = sampleID), vjust = -1.2, size = 3, show.legend = FALSE) +
+  scale_colour_manual(values = c("Control_Static"   = "#6BAED6",
+                                 "Control_Laminar"  = "#08519C",
+                                 "FAT4 KO_Static"   = "#FD8D3C",
+                                 "FAT4 KO_Laminar"  = "#A63603")) +
+  labs(x = paste0("Leading logFC dim 1 (", varExplainedNoGC[1], "%)"),
+       y = paste0("Leading logFC dim 2 (", varExplainedNoGC[2], "%)"),
+       title = "MDS of filtered, TMM-normalised log2 CPM (without FLMT16, FSMT17, CLMT17)") +
+  theme_bw()
+
+mdsNoGCPlot
+ggsave(file.path(outDir, "02_MDS_TMM_logCPM_noGCtrio_dim1-2.png"), mdsNoGCPlot, width = 7, height = 5, dpi = 300)
+```
+
 # Genes driving dimension 1
 
 `plotMDS` gives sample coordinates rather than gene loadings, so rank genes by the correlation of their log2 CPM with the dim 1 coordinate across the 12 samples. The sign of an MDS dimension is arbitrary, so check which side the samples of interest fall on in the plot above.
@@ -225,30 +273,31 @@ write_csv(readFractions, file.path(outDir, "02_read_fractions.csv"))
 
 # MDS dimensions vs QC metrics
 
-Correlate the MDS coordinates with technical QC metrics. GC content and R1 duplication are from the SAGC MultiQC report (FastQC, `RNASeq/raw_data/qc/sagcQC/multiqc_report.html`); the forward-strand fraction is from the strandedness check in `01_data_import_and_QC.Rmd`.
+Correlate the MDS coordinates with technical QC metrics. GC content and R1 duplication are from the SAGC MultiQC report (FastQC on the raw FASTQs, `RNASeq/raw_data/qc/sagcQC/multiqc_report.html`); `gcHighR2` is the % of R2 reads with ≥60% GC, from our FastQC per-sequence GC content (`RNASeq/raw_data/qc/myQC/fastqc/`), and captures the high-GC shoulder specific to the GC-bias libraries; the forward-strand fraction is from the trimmed STAR `ReadsPerGene.out.tab` files (strandedness check in `01_data_import_and_QC.Rmd`); `dedupKept` (library complexity) is from the pipeline QC; `libSize` is the deduplicated library size after filtering.
 
 ```{r}
 qcMetrics <- tribble(
-  ~sampleID, ~gcR1, ~gcR2, ~dupR1, ~fracForward,
-  "CSMT16",  42,    45,    90.6,   0.0536, # S1
-  "FSMT16",  40,    44,    93.1,   0.0540, # S2
-  "CLMT16",  40,    45,    94.2,   0.0556, # S3
-  "FLMT16",  45,    50,    88.7,   0.0697, # S4
-  "CSMT17",  40,    44,    94.8,   0.0523, # S5
-  "FSMT17",  46,    51,    89.9,   0.0714, # S6
-  "CLMT17",  47,    51,    89.0,   0.0718, # S7
-  "FLMT17",  43,    46,    94.6,   0.0644, # S8
-  "CSMT18",  39,    44,    94.1,   0.0544, # S9
-  "FSMT18",  39,    44,    94.3,   0.0584, # S10
-  "CLMT18",  40,    45,    93.7,   0.0623, # S11
-  "FLMT18",  39,    44,    94.1,   0.0587  # S12
+  ~sampleID, ~gcR1, ~gcR2, ~gcHighR2, ~dupR1, ~fracForward,
+  "CSMT16",  42,    45,    0.3,       90.6,   0.0531, # S1
+  "FSMT16",  40,    44,    0.1,       93.1,   0.0536, # S2
+  "CLMT16",  40,    45,    0.4,       94.2,   0.0554, # S3
+  "FLMT16",  45,    50,    20.7,      88.7,   0.0693, # S4
+  "CSMT17",  40,    44,    0.1,       94.8,   0.0521, # S5
+  "FSMT17",  46,    51,    23.6,      89.9,   0.0710, # S6
+  "CLMT17",  47,    51,    24.3,      89.0,   0.0714, # S7
+  "FLMT17",  43,    46,    1.7,       94.6,   0.0638, # S8
+  "CSMT18",  39,    44,    0.0,       94.1,   0.0538, # S9
+  "FSMT18",  39,    44,    0.2,       94.3,   0.0578, # S10
+  "CLMT18",  40,    45,    0.9,       93.7,   0.0618, # S11
+  "FLMT18",  39,    44,    0.3,       94.1,   0.0580  # S12
 )
 
 qcDf <- mdsDf %>%
   dplyr::select(sampleID, group, dim1, dim2) %>%
   left_join(qcMetrics, by = "sampleID") %>%
+  left_join(dplyr::select(pipelineQC, sampleID, dedupKept), by = "sampleID") %>%
   left_join(readFractions, by = "sampleID") %>%
-  left_join(tibble(sampleID = colnames(dge), libSize = dge$samples$lib.size / 1e6), by = "sampleID") # million reads
+  left_join(tibble(sampleID = colnames(dge), libSize = dge$samples$lib.size / 1e6), by = "sampleID") # million deduplicated fragments
 
 stopifnot(!anyNA(qcDf))
 write_csv(qcDf, file.path(outDir, "02_QC_metrics_by_sample.csv"))
@@ -266,7 +315,7 @@ qcCor
 write_csv(qcCor, file.path(outDir, "02_MDS_vs_QC_correlations.csv"))
 ```
 
-```{r, fig.width=10, fig.height=6}
+```{r, fig.width=10, fig.height=8}
 qcPlot <- ggplot(qcLong, aes(x = value, y = dim1, colour = group)) +
   geom_point(size = 3) +
   facet_wrap(~ metric, scales = "free_x") +
@@ -280,7 +329,24 @@ qcPlot <- ggplot(qcLong, aes(x = value, y = dim1, colour = group)) +
   theme_bw()
 
 qcPlot
-ggsave(file.path(outDir, "02_MDS_dim1_vs_QC.png"), qcPlot, width = 10, height = 6, dpi = 300)
+ggsave(file.path(outDir, "02_MDS_dim1_vs_QC.png"), qcPlot, width = 10, height = 8, dpi = 300)
+```
+
+```{r, fig.width=10, fig.height=8}
+qcPlotDim2 <- ggplot(qcLong, aes(x = value, y = dim2, colour = group)) +
+  geom_point(size = 3) +
+  facet_wrap(~ metric, scales = "free_x") +
+  scale_colour_manual(values = c("Control_Static"   = "#6BAED6",
+                                 "Control_Laminar"  = "#08519C",
+                                 "FAT4 KO_Static"   = "#FD8D3C",
+                                 "FAT4 KO_Laminar"  = "#A63603")) +
+  labs(x = "QC metric value",
+       y = "MDS dim 2",
+       title = "MDS dim 2 vs QC metrics") +
+  theme_bw()
+
+qcPlotDim2
+ggsave(file.path(outDir, "02_MDS_dim2_vs_QC.png"), qcPlotDim2, width = 10, height = 8, dpi = 300)
 ```
 
 # Marker genes
