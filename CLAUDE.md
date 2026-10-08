@@ -101,7 +101,7 @@ Barcode: 10bp, Dual Barcode: 10bp
 - Ruled out: proliferation (MKI67, TOP2A, CDK1, CCNA2 do not track dim 1), residual rRNA (the three have the *lowest* rRNA fraction), sample label swaps (marker genes are consistent with labels)
 - Likely source: library prep (PCR amplification, 20 cycles, or fragmentation). Not yet confirmed with the lab/SAGC whether S4, S6, S7 were processed differently
 - Partially confounded with design: one sample each from Control_Laminar, FAT4 KO_Laminar, FAT4 KO_Static; none from Control_Static
-- **Not yet corrected.** Preferred approach: per-gene exonic GC content from the GRCh38 genome FASTA + GENCODE v39 GTF, then cqn offsets in edgeR. Alternatives: GC covariate in the design, or RUVSeq/svaseq
+- **Not yet corrected; persists after UMI deduplication.** Agreed approach (2026-10-08): per-gene exonic GC content and length from `BSgenome.Hsapiens.UCSC.hg38` (same UCSC hg38 assembly as the STAR index FASTA `hg38_no_alt.fasta`; matching chromosome names) + GENCODE v39 GTF, then cqn offsets in edgeR, plus sample quality weights for the depth/complexity differences. Alternatives considered: GC covariate or trio indicator in the design (assumes a uniform effect across genes), RUVSeq/svaseq
 
 **Interpretation cautions while uncorrected:**
 - Per-sample values for GC-rich genes are inflated, and AT-rich genes deflated, in the three samples. Check gene GC/chromosome before interpreting any gene-level pattern that is driven by these samples
@@ -129,7 +129,7 @@ Barcode: 10bp, Dual Barcode: 10bp
 
 **Pending (as of 2026-10-08):**
 - Shanna is checking lab book notes for any processing differences in FLMT16, FSMT17, CLMT17, and (new) RNA input amount/quality per sample
-- Re-run 01/02 on the deduplicated counts: does the GC-bias dim 1 split persist, and does it track library complexity? If it persists, apply cqn GC correction
+- Compute per-gene exonic GC content and length (`BSgenome.Hsapiens.UCSC.hg38` + GENCODE v39 GTF) and apply cqn GC correction, with sample quality weights
 
 **UMI re-processing results (completed 2026-10-08; HPC jobs 16285263–16285268, all COMPLETED):**
 - Pipeline: `umi_tools extract` (R2: N + 10-nt UMI + `GCAGGG`, 1 mismatch) → `cutadapt` (R1 `-u 3`, Illumina + MGI adapters, `-q 20`, min length 30) → STAR 2.7.11b (original index/settings) → `umi_tools dedup --paired` (NH multimapping detection) → `featureCounts -p --countReadPairs -s 2`
@@ -137,7 +137,15 @@ Barcode: 10bp, Dual Barcode: 10bp
 - **Libraries are extremely duplicated (low complexity): only 2.6–14.5% of mapped reads are unique molecules (85–97% PCR duplicates).** Not a dedup artefact: FastQC R1 sequence-level dedup (no UMIs) was also only 5–11%, and mean UMIs per position is ~1.2–1.3 (10-nt UMI not saturated)
 - Deduplicated fragments assigned to genes per sample (vs ~24–41M before dedup): CSMT16 4.20M (14.5% kept), FSMT16 2.87M (8.0%), CLMT16 **0.84M** (3.4%), FLMT16 3.25M (13.8%), CSMT17 **0.75M** (2.6%), FSMT17 3.59M (12.7%), CLMT17 4.36M (14.4%), FLMT17 **1.04M** (3.5%), CSMT18 2.37M (6.4%), FSMT18 1.95M (5.3%), CLMT18 2.93M (7.3%), FLMT18 1.97M (5.6%). ~6-fold range; CSMT17, CLMT16 and FLMT17 are very low depth
 - **Use the deduplicated counts** for analysis: non-deduplicated counts count PCR copies of the same molecule, inflating evidence and distorting variance
-- **Hypothesis (untested):** the three GC-bias samples (FLMT16, FSMT17, CLMT17) are among the most complex libraries (12.7–14.4% kept, with CSMT16). GC-rich fragments amplify less efficiently, so heavily over-amplified libraries may be depleted of them — the "biased" samples may be the less over-amplified ones. Test by comparing GC metrics with complexity and re-running MDS on deduplicated counts
+- **Hypothesis tested and ruled out (2026-10-08):** that the GC-bias samples are simply the less over-amplified (more complex) libraries. CSMT16 is equally complex (14.5% kept) but has no GC shoulder (0.3% of R2 reads ≥60% GC) and sits with the other static samples; MDS dim 1 correlates far more with GC (gcHighR2 r = 0.97) than with complexity (dedupKept r = 0.71). The GC signature is library-specific, not a consequence of complexity or PCR duplicates
+
+**Analysis on UMI-deduplicated counts (`02_filter_normalise_MDS.Rmd`, 2026-10-08):**
+- 11,491 genes pass `filterByExpr` (vs 15,710 before deduplication; mostly lncRNAs lost, 2,246 → 484). TMM factors 0.92–1.13; deduplicated library sizes 0.75–4.3M
+- **12-sample MDS:** dim 1 (61%) = the GC-bias trio. Correlations with dim 1: histone fraction 0.98, gcR2 0.98, gcHighR2 0.97, fracForward 0.96, dupR1 −0.84, dedupKept 0.71, libSize 0.59. The trio still have the lowest rRNA/mitochondrial and highest histone fractions — **GC bias persists after deduplication**
+- **9-sample MDS (trio removed):** dim 1 (33%) = **flow** — all five Static (−1.30 to −0.09) separate completely from all four Laminar (+0.22 to +1.32). Genotype does not separate on dims 1–2
+- **Dim 2 = depth/quality:** in the 9-sample MDS (26%), the three least complex libraries (CLMT16 3.4%, CSMT17 2.6%, FLMT17 3.5% kept) are the only samples below zero; in the 12-sample MDS dim 2 correlates with libSize (+0.56), rRNA fraction (−0.54) and dedupKept (+0.40). FLMT17 also has the highest rRNA (2.3%) and mitochondrial (11%) fractions
+- **Markers (deduplicated counts):** FAT4 Control 7.33–8.10 vs KO 5.46–6.87 log2 CPM (complete separation); KLF4 Static 0.60–2.21 vs Laminar 4.45–6.02 (complete separation). KLF2 is still highest within group in all three GC-bias samples — not a reliable flow marker until GC is corrected
+- **Implications for DE:** correct GC with cqn; use sample quality weights to down-weight the low-depth libraries (CLMT16, CSMT17, FLMT17); expect limited power for genotype and interaction effects (n = 3, 0.75–4.3M fragments per sample)
 - Likely cause of low complexity: low RNA input and/or over-amplification (20 PCR cycles) — ask Shanna for RNA input amounts
 
 ---
