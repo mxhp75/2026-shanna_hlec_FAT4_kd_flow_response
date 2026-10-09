@@ -1,0 +1,244 @@
+---
+title: "03_gene_GC_length"
+author: "Melanie Smith"
+date: "2026-10-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Clean-up environment
+
+```{r}
+rm(list = ls(all.names = TRUE)) # will clear all objects includuing hidden objects
+gc() # free up memory and report the memory usage
+options(max.print = .Machine$integer.max, scipen = 999, stringsAsFactors = FALSE, dplyr.summarise.inform = FALSE) # Print everything without truncation, avoid scientific notation, keep strings as characters, silence dplyr’s “grouped output” informational messages
+set.seed(42) # set seed for reproducibility
+```
+
+# Install packages
+
+Run once, then comment out. `BSgenome.Hsapiens.UCSC.hg38` is a large download (~800 MB). `cqn` is not used here but is needed for GC correction in the next script.
+
+```{r}
+BiocManager::install(c("BSgenome.Hsapiens.UCSC.hg38", "cqn"))
+```
+
+# Load Libraries
+
+```{r}
+# Core tidyverse
+library(tidyverse)
+library(tibble)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# RNA-seq
+library(edgeR)
+
+# Genomic ranges and sequence
+library(rtracklayer)
+library(GenomicRanges)
+library(Biostrings)
+library(BSgenome.Hsapiens.UCSC.hg38)
+```
+
+# Set paths
+
+```{r}
+projectDir <- "/home/melanie-smith/workDir/natashaHarvey/2026-shanna_hlec_FAT4_kd_flow_response"
+outDir <- file.path(projectDir, "RNASeq", "out_dir")
+gtfFile <- file.path(projectDir, "RNASeq", "genomeFiles", "gencode.v39.annotation.gtf")
+countsFile <- file.path(projectDir, "RNASeq", "raw_data", "umi_processing", "featurecounts", "featurecounts_dedup.txt")
+```
+
+# Import data
+
+Outputs of `01_data_import_and_QC.Rmd` and `02_filter_normalise_MDS.Rmd`: the gene annotation, the sample metadata, the filtered TMM-normalised DGEList and the per-gene correlations with MDS dim 1 (12 samples).
+
+```{r}
+geneAnno <- readRDS(file.path(outDir, "01_gene_annotation.rds"))
+sampleMeta <- readRDS(file.path(outDir, "01_sample_metadata.rds"))
+dge <- readRDS(file.path(outDir, "02_dge_filtered_TMM.rds"))
+dim1Genes <- read_csv(file.path(outDir, "02_dim1_gene_correlations.csv"), show_col_types = FALSE)
+
+groupLevels <- c("Control_Static", "Control_Laminar", "FAT4 KO_Static", "FAT4 KO_Laminar")
+gcBiasSamples <- c("FLMT16", "FSMT17", "CLMT17") # GC-bias libraries (CLAUDE.md, RNA-seq QC findings)
+```
+
+# Exons per gene
+
+Import the exon records from the GENCODE v39 GTF and merge overlapping exons within each gene (the union of all its transcripts' exons). This is the same gene model featureCounts used to count reads, so the gene length here is the featureCounts `Length`.
+
+```{r}
+exons <- import(gtfFile, feature.type = "exon")
+length(exons)
+
+exonsByGene <- reduce(split(exons, exons$gene_id)) # one GRangesList element per gene, overlapping exons merged
+length(exonsByGene)
+stopifnot(setequal(names(exonsByGene), geneAnno$GeneID)) # every gene in the annotation has exons
+```
+
+# Exonic sequence, length and GC content
+
+Extract the merged exon sequences from the UCSC hg38 genome (the same assembly as the STAR index FASTA `hg38_no_alt.fasta`, with matching `chr` names) and compute, for each gene, the total exonic length and the GC fraction of that sequence. GC content is the same on either strand, so exons are taken from the reference strand.
+
+```{r}
+stopifnot(all(seqlevelsInUse(exonsByGene) %in% seqlevels(BSgenome.Hsapiens.UCSC.hg38))) # all chromosome names match the genome
+
+exonsFlat <- unlist(exonsByGene) # one range per merged exon, named by gene
+exonSeqs <- getSeq(BSgenome.Hsapiens.UCSC.hg38, exonsFlat)
+exonBases <- letterFrequency(exonSeqs, letters = c("G", "C", "A", "T")) # base counts per exon
+
+geneBases <- rowsum(exonBases, group = names(exonsFlat)) # base counts per gene
+
+geneGC <- tibble(GeneID    = rownames(geneBases),
+                 length    = sum(width(exonsByGene))[rownames(geneBases)], # total merged exon length, including any N bases
+                 gcContent = (geneBases[, "G"] + geneBases[, "C"]) / rowSums(geneBases)) %>% # GC fraction of the called (non-N) bases
+  left_join(geneAnno, by = "GeneID")
+
+geneGC <- geneGC[match(geneAnno$GeneID, geneGC$GeneID), ] # same order as the count matrix and annotation
+stopifnot(identical(geneGC$GeneID, geneAnno$GeneID))
+stopifnot(!anyNA(geneGC$gcContent))
+
+summary(geneGC$length)
+summary(geneGC$gcContent)
+```
+
+# Check gene length against featureCounts
+
+featureCounts reports the length of the merged exons for each gene, so the lengths here should match exactly. A mismatch would mean a different gene model or a sequence-extraction problem.
+
+```{r}
+fcLength <- read_tsv(countsFile, comment = "#", col_select = c(Geneid, Length), show_col_types = FALSE)
+
+lengthCheck <- geneGC %>%
+  dplyr::select(GeneID, length) %>%
+  left_join(fcLength, by = c("GeneID" = "Geneid"))
+
+table(lengthCheck$length == lengthCheck$Length)
+stopifnot(all(lengthCheck$length == lengthCheck$Length))
+```
+
+# GC content by chromosome
+
+Genes on chr19, 22, 16 and 17 are expected to be GC-rich, and genes on chr4, 13, 18 and 5 AT-rich. The GC-bias signature in 02 followed this pattern. Genes retained by `filterByExpr` only.
+
+```{r, fig.width=10, fig.height=4}
+chrLevels <- paste0("chr", c(1:22, "X", "Y", "M"))
+
+gcChrDf <- geneGC %>%
+  filter(GeneID %in% rownames(dge)) %>%
+  mutate(chr = factor(chr, levels = chrLevels))
+
+gcChrPlot <- ggplot(gcChrDf, aes(x = chr, y = gcContent)) +
+  geom_boxplot(outlier.size = 0.5) +
+  labs(x = NULL,
+       y = "Exonic GC fraction",
+       title = "Exonic GC content of retained genes by chromosome") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+gcChrPlot
+ggsave(file.path(outDir, "03_gene_GC_by_chromosome.png"), gcChrPlot, width = 10, height = 4, dpi = 300)
+```
+
+# MDS dim 1 vs gene GC content
+
+If dim 1 of the 12-sample MDS is driven by GC bias, a gene's correlation with dim 1 should increase with its exonic GC content. Gene length is shown for comparison (cqn corrects for both).
+
+```{r}
+dim1GC <- dim1Genes %>%
+  dplyr::select(GeneID, r, aveLogCPM) %>%
+  left_join(dplyr::select(geneGC, GeneID, gcContent, length), by = "GeneID")
+stopifnot(!anyNA(dim1GC))
+
+cor(dim1GC$r, dim1GC$gcContent, method = "spearman")
+cor(dim1GC$r, log10(dim1GC$length), method = "spearman")
+```
+
+```{r, fig.width=10, fig.height=4}
+dim1GCLong <- dim1GC %>%
+  mutate(log10Length = log10(length)) %>%
+  dplyr::select(GeneID, r, gcContent, log10Length) %>%
+  pivot_longer(c(gcContent, log10Length), names_to = "feature", values_to = "value")
+
+dim1GCPlot <- ggplot(dim1GCLong, aes(x = value, y = r)) +
+  geom_point(size = 0.3, alpha = 0.2) +
+  geom_smooth(method = "loess", se = FALSE, colour = "red") +
+  facet_wrap(~ feature, scales = "free_x") +
+  labs(x = "Exonic GC fraction / log10 exonic length (bp)",
+       y = "Correlation with MDS dim 1",
+       title = "Gene correlation with MDS dim 1 vs GC content and length") +
+  theme_bw()
+
+dim1GCPlot
+ggsave(file.path(outDir, "03_dim1_correlation_vs_GC_length.png"), dim1GCPlot, width = 10, height = 4, dpi = 300)
+```
+
+# Per-sample expression vs gene GC content
+
+For each sample, the median of each gene's log2 CPM minus that gene's mean across the 12 samples, in ten equal-sized bins of exonic GC content. Without GC bias each line should be flat around zero; the GC-bias libraries should rise with GC content. This is the dependence cqn models and removes.
+
+```{r}
+logCPM <- cpm(dge, log = TRUE)
+relLogCPM <- logCPM - rowMeans(logCPM) # each gene relative to its mean across samples
+
+gcBins <- geneGC %>%
+  filter(GeneID %in% rownames(dge)) %>%
+  mutate(gcBin = ntile(gcContent, 10)) %>%
+  group_by(gcBin) %>%
+  mutate(binGC = median(gcContent)) %>%
+  ungroup() %>%
+  dplyr::select(GeneID, gcBin, binGC)
+
+gcSampleDf <- as_tibble(relLogCPM, rownames = "GeneID") %>%
+  pivot_longer(-GeneID, names_to = "sampleID", values_to = "relLogCPM") %>%
+  left_join(gcBins, by = "GeneID") %>%
+  group_by(sampleID, gcBin, binGC) %>%
+  summarise(medianRelLogCPM = median(relLogCPM)) %>%
+  ungroup() %>%
+  left_join(sampleMeta, by = "sampleID") %>%
+  mutate(group = factor(group, levels = groupLevels),
+         gcBias = if_else(sampleID %in% gcBiasSamples, "GC-bias library", "Other"))
+
+write_csv(gcSampleDf, file.path(outDir, "03_sample_logCPM_by_GC_bin.csv"))
+```
+
+```{r, fig.width=7, fig.height=5}
+gcSamplePlot <- ggplot(gcSampleDf, aes(x = binGC, y = medianRelLogCPM, group = sampleID, colour = group, linetype = gcBias)) +
+  geom_hline(yintercept = 0, colour = "grey50") +
+  geom_line() +
+  geom_point(size = 1) +
+  geom_text(data = filter(gcSampleDf, gcBin == 10), aes(label = sampleID), hjust = -0.2, size = 2.5, show.legend = FALSE) +
+  scale_x_continuous(expand = expansion(mult = c(0.05, 0.15))) + # extra space on the right for the sample labels
+  scale_colour_manual(values = c("Control_Static"   = "#6BAED6",
+                                 "Control_Laminar"  = "#08519C",
+                                 "FAT4 KO_Static"   = "#FD8D3C",
+                                 "FAT4 KO_Laminar"  = "#A63603")) +
+  labs(x = "Exonic GC fraction (bin median)",
+       y = "Median log2 CPM relative to gene mean",
+       linetype = NULL,
+       title = "Per-sample expression vs gene GC content") +
+  theme_bw()
+
+gcSamplePlot
+ggsave(file.path(outDir, "03_sample_logCPM_vs_GC.png"), gcSamplePlot, width = 7, height = 5, dpi = 300)
+```
+
+# Save gene GC content and length
+
+All 61,533 genes, in the same order as the count matrix, for cqn in the next script.
+
+```{r}
+saveRDS(dplyr::select(geneGC, GeneID, geneName, geneType, chr, length, gcContent), file.path(outDir, "03_gene_GC_length.rds"))
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```

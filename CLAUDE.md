@@ -132,7 +132,7 @@ Barcode: 10bp, Dual Barcode: 10bp
 - Shanna is checking lab book notes for any processing differences in FLMT16, FSMT17, CLMT17
 - From the wetlab (asked 2026-10-09): meaning of the 2× "Concentration" column (dilution?) and which value went to SAGC; amount/volume of RNA sent; A260/A230; extraction method
 - From SAGC: TapeStation/RIN/DV200 traces and the RNA input actually used for library construction
-- Per-gene exonic GC content and length: `03_gene_GC_length.Rmd` (drafted 2026-10-09); then apply cqn GC correction, with sample quality weights
+- Per-gene exonic GC content and length: done in `03_gene_GC_length.Rmd` (2026-10-09). **cqn GC correction not started — analysis of this dataset paused (2026-10-09):** the data are too poor quality to work with (very low complexity, GC bias in three libraries); expect new libraries and new sequencing, and to re-run the analysis from scratch
 
 **RNA extraction QC from the wetlab (received 2026-10-09; hLEC B4 P4; NanoDrop):**
 
@@ -172,7 +172,14 @@ Barcode: 10bp, Dual Barcode: 10bp
 - **Dim 2 = depth/quality:** in the 9-sample MDS (26%), the three least complex libraries (CLMT16 3.4%, CSMT17 2.6%, FLMT17 3.5% kept) are the only samples below zero; in the 12-sample MDS dim 2 correlates with libSize (+0.56), rRNA fraction (−0.54) and dedupKept (+0.40). FLMT17 also has the highest rRNA (2.3%) and mitochondrial (11%) fractions
 - **Markers (deduplicated counts):** FAT4 Control 7.33–8.10 vs KO 5.46–6.87 log2 CPM (complete separation); KLF4 Static 0.60–2.21 vs Laminar 4.45–6.02 (complete separation). KLF2 is still highest within group in all three GC-bias samples — not a reliable flow marker until GC is corrected
 - **Implications for DE:** correct GC with cqn; use sample quality weights to down-weight the low-depth libraries (CLMT16, CSMT17, FLMT17); expect limited power for genotype and interaction effects (n = 3, 0.75–4.3M fragments per sample)
-- Likely cause of low complexity: low RNA input and/or over-amplification (20 PCR cycles). RNA concentrations supplied to SAGC were high and do not track complexity (see RNA extraction QC above) — if SAGC used a fixed input, the cause is more likely RNA integrity or a library-prep step; awaiting SAGC's TapeStation data and input amounts
+- Likely cause of low complexity: low RNA input and/or over-amplification (20 PCR cycles). The SAGC report's "Conc." column is the final *library* concentration (not RNA); the two lowest-yield libraries (CSMT17 1.8, CLMT16 2.1 ng/µl) are the two least complex, FLMT17 (3.1) next — by eye, not tested; the GC-bias libraries CLMT17 and FLMT16 have low yields but high complexity. SAGC QC'd the RNA by Qubit (report comment 1) but the values are not reported. RNA concentrations supplied to SAGC were high and do not track complexity (see RNA extraction QC above) — if SAGC used a fixed input, the cause is more likely RNA integrity or a library-prep step; awaiting SAGC's TapeStation data and input amounts
+
+**Gene GC content and length (`03_gene_GC_length.Rmd`, 2026-10-09):**
+- Per-gene exonic length and GC from the union of GENCODE v39 exons per gene (1,552,754 exon records → 61,533 genes) and `BSgenome.Hsapiens.UCSC.hg38`; GC = fraction of non-N bases. Saved as `out_dir/03_gene_GC_length.rds` (all genes, count-matrix order)
+- Lengths match the featureCounts `Length` column exactly for all 61,533 genes. Length median 1,102 bp (8–347,964); GC median 0.466 (0.16–0.93; extremes are short genes)
+- GC by chromosome as expected: chr19 (median ~0.57), chr22, chr16, chr17 GC-rich; chr4, chr13, chr18 AT-rich (~0.42)
+- **Dim 1 (12-sample MDS) is a GC effect:** gene correlation with dim 1 vs exonic GC, Spearman 0.76 (S-shaped: r ≈ −0.7 below ~0.45 GC, ≈ +0.95 above ~0.55); vs log10 length only −0.14
+- **Per-sample GC curves** (log2 CPM relative to the 12-sample gene mean, 10 GC bins): FLMT16, FSMT17, CLMT17 rise steeply to ~+2 log2 in the top GC bin. The other nine slope down at high GC — partly an artefact of centring on a mean that includes the trio — but range from ~0 (CLMT18) to −1.4 (CSMT17) in the top bin; Static samples tend to be more negative than Laminar (CLMT16 is the exception). If revisited: check whether this ordering reflects flow biology before applying cqn, as per-sample GC correction could remove real flow signal (compare 9-sample MDS before/after cqn; re-centre on the nine-sample mean)
 
 ---
 
