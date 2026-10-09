@@ -14,8 +14,9 @@
 
 **Project:** Human lymphatic endothelial cells (hLEC) analysis: FAT4 knock out
 **Researcher:** Melanie Smith — melanie.smith@adelaide.edu.au
-**PI/Collaborator:** Natasha Harvey
-**CI/Collaborator:** Shanna Hosking
+**PI:** Natasha Harvey (Tash)
+**CI:** Shanna Hosking
+**Research assistant:** Kelly Betterman (wetlab: RNA extraction, dilutions and submission to SAGC; SAGC report is in her name)
 **Project directory:** `/home/melanie-smith/workDir/natashaHarvey/2026-shanna_hlec_FAT4_kd_flow_response`
 
 This project analyses hLEC cells exposed to Laminar or Static flow in the context of a FAT4 knockout. We are asking the question "What is the response to flow in the absence of FAT4?" We have protein abundence (mass spec) and matched RNASeq.

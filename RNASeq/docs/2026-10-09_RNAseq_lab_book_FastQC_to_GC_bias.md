@@ -6,7 +6,7 @@ output: html_document
 ---
 
 **Project:** hLEC FAT4 knockdown × laminar/static flow (matched to proteomics)\
-**PI:** Natasha Harvey · **CI:** Shanna Hosking\
+**PI:** Natasha Harvey · **CI:** Shanna Hosking · **Research assistant:** Kelly Betterman\
 **Sequencing:** SAGC, quote SAGCQA2280, report SAGCQR2280\
 **Project directory:** `/home/melanie-smith/workDir/natashaHarvey/2026-shanna_hlec_FAT4_kd_flow_response`\
 **Period covered:** 2026-09-30 to 2026-10-09
