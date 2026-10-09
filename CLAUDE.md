@@ -128,9 +128,34 @@ Barcode: 10bp, Dual Barcode: 10bp
 - Base composition from FastQC is binned in pairs after base 9; exact positions were confirmed from raw R2 reads
 - **Original counts (STAR `ReadsPerGene`, column 4, untrimmed reads) were NOT UMI-deduplicated** — STAR soft-clipped the R2 linker/UMI (hence normal mapping rates). Superseded 2026-10-08 by the UMI-deduplicated counts below
 
-**Pending (as of 2026-10-08):**
-- Shanna is checking lab book notes for any processing differences in FLMT16, FSMT17, CLMT17, and (new) RNA input amount/quality per sample
-- Compute per-gene exonic GC content and length (`BSgenome.Hsapiens.UCSC.hg38` + GENCODE v39 GTF) and apply cqn GC correction, with sample quality weights
+**Pending (as of 2026-10-09):**
+- Shanna is checking lab book notes for any processing differences in FLMT16, FSMT17, CLMT17
+- From the wetlab (asked 2026-10-09): meaning of the 2× "Concentration" column (dilution?) and which value went to SAGC; amount/volume of RNA sent; A260/A230; extraction method
+- From SAGC: TapeStation/RIN/DV200 traces and the RNA input actually used for library construction
+- Per-gene exonic GC content and length: `03_gene_GC_length.Rmd` (drafted 2026-10-09); then apply cqn GC correction, with sample quality weights
+
+**RNA extraction QC from the wetlab (received 2026-10-09; hLEC B4 P4; NanoDrop):**
+
+| Experiment | Sample | Treatment | Well | NanoDrop (ng/µl) | A260/A280 | Concentration (ng/µl) |
+|---|---|---|---|---:|---:|---:|
+| T16 | CS16 | EGFP esiRNA static | A1 | 88.9 | 2.06 | 177.8 |
+| T16 | FS16 | FAT4 esiRNA static | B1 | 68.7 | 2.05 | 137.4 |
+| T16 | CL16 | EGFP esiRNA LSS | C1 | 60.4 | 2.03 | 120.8 |
+| T16 | FL16 | FAT4 esiRNA LSS | D1 | 69.0 | 2.08 | 138.0 |
+| T17 | CS17 | EGFP esiRNA static | E1 | 82.6 | 2.04 | 165.2 |
+| T17 | FS17 | FAT4 esiRNA static | F1 | 68.2 | 2.02 | 136.4 |
+| T17 | CL17 | EGFP esiRNA LSS | G1 | 96.2 | 2.04 | 192.4 |
+| T17 | FL17 | FAT4 esiRNA LSS | H1 | 82.8 | 2.03 | 165.6 |
+| T18 | CS18 | EGFP esiRNA static | A2 | 89.3 | 2.05 | 178.6 |
+| T18 | FS18 | FAT4 esiRNA static | B2 | 99.4 | 2.04 | 198.8 |
+| T18 | CL18 | EGFP esiRNA LSS | C2 | 118.4 | 2.06 | 236.8 |
+| T18 | FL18 | FAT4 esiRNA LSS | D2 | 94.4 | 2.04 | 188.8 |
+
+- "Concentration" is exactly 2× the NanoDrop reading — meaning not yet confirmed. LSS = laminar shear stress. T16/T17/T18 = the three experiments (replicates); well = position on the plate sent to SAGC
+- All samples are pure by A260/A280 (2.02–2.08) and well above the amount needed for a 100 ng input. No A260/A230 or RIN in this sheet
+- **No relationship with library complexity:** Spearman rho ≈ 0.06 between concentration and dedup % kept; e.g. CSMT17 (165.2 ng/µl) is the least complex library (2.6% kept)
+- **No relationship with the GC-bias trio:** FL16, FS17, CL17 have unremarkable concentrations (136–192), span T16 and T17, and are not adjacent on the plate (D1, F1, G1; CS17 at E1 between them)
+- So the RNA as supplied does not explain the low complexity or the GC bias; RNA integrity (TapeStation) and SAGC's input/library steps remain the open questions
 
 **UMI re-processing results (completed 2026-10-08; HPC jobs 16285263–16285268, all COMPLETED):**
 - Pipeline: `umi_tools extract` (R2: any base at pos 1 (fixed `A`) + 10-nt UMI + `GCAGGG`, 1 mismatch) → `cutadapt` (R1 `-u 3`, Illumina + MGI adapters, `-q 20`, min length 30) → STAR 2.7.11b (original index/settings) → `umi_tools dedup --paired` (NH multimapping detection) → `featureCounts -p --countReadPairs -s 2`
@@ -147,14 +172,15 @@ Barcode: 10bp, Dual Barcode: 10bp
 - **Dim 2 = depth/quality:** in the 9-sample MDS (26%), the three least complex libraries (CLMT16 3.4%, CSMT17 2.6%, FLMT17 3.5% kept) are the only samples below zero; in the 12-sample MDS dim 2 correlates with libSize (+0.56), rRNA fraction (−0.54) and dedupKept (+0.40). FLMT17 also has the highest rRNA (2.3%) and mitochondrial (11%) fractions
 - **Markers (deduplicated counts):** FAT4 Control 7.33–8.10 vs KO 5.46–6.87 log2 CPM (complete separation); KLF4 Static 0.60–2.21 vs Laminar 4.45–6.02 (complete separation). KLF2 is still highest within group in all three GC-bias samples — not a reliable flow marker until GC is corrected
 - **Implications for DE:** correct GC with cqn; use sample quality weights to down-weight the low-depth libraries (CLMT16, CSMT17, FLMT17); expect limited power for genotype and interaction effects (n = 3, 0.75–4.3M fragments per sample)
-- Likely cause of low complexity: low RNA input and/or over-amplification (20 PCR cycles) — ask Shanna for RNA input amounts
+- Likely cause of low complexity: low RNA input and/or over-amplification (20 PCR cycles). RNA concentrations supplied to SAGC were high and do not track complexity (see RNA extraction QC above) — if SAGC used a fixed input, the cause is more likely RNA integrity or a library-prep step; awaiting SAGC's TapeStation data and input amounts
 
 ---
 
 ## Cell Model
 
 - **Cell type:** Human lymphatic endothelial cells (hLECs)
-- **Perturbation:** FAT4 knockdown/knockout
+- **Perturbation:** FAT4 knockdown by esiRNA (FAT4 esiRNA vs EGFP esiRNA control), per the wetlab extraction sheet (2026-10-09). Consistent with the partial (~1–1.5 log2) FAT4 reduction in the RNA-seq. "FAT4 KO" labels in this file and the scripts are retained for now
+- **Cells:** hLEC batch B4, passage 4
 - **Mechanobiological stimulus:** Laminar fluid flow vs static culture
 - **Readout:** Protein abundance by mass spectrometry and transcript quantification by RNASeq
 
