@@ -258,13 +258,24 @@ FastQC 0.12.1 and MultiQC 1.27 were run on the raw FASTQs.
 
 **Wetlab RNA extraction QC (NanoDrop):**
 - **Purity:** A260/A280 is 2.02–2.08 in all samples.
-- **Concentration:** the stock concentration is 120.8–236.8 ng/µl. It is exactly 2× the NanoDrop reading, most likely because the RNA was diluted 1:2 before measuring (to be confirmed).
+- **Concentration:** the stock concentration is 120.8–236.8 ng/µl. It is exactly 2× the NanoDrop reading because each sample was diluted 1:2 in TE buffer before measuring (confirmed by Kelly Betterman, 2026-10-09).
 - **Plate positions:** A1–H1 and A2–D2, in the order T16, T17, T18.
+- **RNA sent to SAGC:** each sample was diluted to 50 ng/µl, then split into 10 µl for SAGC QC (500 ng) and 30 µl for library prep (1.5 µg), with 5 µl spare (45 µl in total). The amount supplied was therefore not limiting: the handbook's input range is 1 ng–1 µg.
+- **Inputs were equalised from NanoDrop readings.** If NanoDrop overestimated some samples (gDNA, contaminants), those samples would have had less RNA than intended. SAGC's Qubit values would show this.
+- **Pending:** A260/A230 ratios, which Kelly will retrieve from the NanoDrop screenshots.
+
+**Why the TE buffer may matter:**
+- Standard TE contains 1 mM EDTA, which binds Mg²⁺.
+- The kit fragments RNA with heat in a Mg²⁺-containing buffer. The handbook (p. 35) states: "The presence of Mg2+, EDTA, EGTA, other salts, and divalent ion chelators in the RNA sample will affect fragmentation times". Its times assume RNA in Buffer EB or nuclease-free water.
+- Reverse transcription and PCR also need Mg²⁺.
+- EDTA carry-over could therefore reduce fragmentation (longer fragments) and cDNA yield (fewer unique molecules, so lower complexity).
+- All samples were diluted the same way, so if SAGC used equal volumes the EDTA dose was uniform. TE could explain a run-wide effect, but not the differences between samples or the GC trio.
+- Still to confirm: whether the 50 ng/µl stocks were made in TE or water, and whether the TE was standard (1 mM EDTA) or low-EDTA (0.1 mM).
 
 **Comparison with the sequencing problems:**
 - **Complexity:** RNA concentration does not track library complexity (Spearman ρ ≈ 0.06). For example, CSMT17 (165.2 ng/µl) is the least complex library.
 - **GC bias:** the GC-bias samples have unremarkable concentrations, span T16 and T17, and are not adjacent on the plate (D1, F1, G1).
-- **Conclusion:** the RNA as supplied explains neither problem.
+- **Conclusion:** the amount and purity of the RNA explain neither problem. The TE diluent is a possible run-wide contributor (see above).
 
 **SAGC library QC:**
 - The "Conc." column in the SAGC report is the final library concentration, not the RNA concentration.
@@ -277,17 +288,29 @@ FastQC 0.12.1 and MultiQC 1.27 were run on the raw FASTQs.
 - **2026-10-08, to SAGC:** reported the error in the PDF read counts. SAGC replied with an "updated" report, but the file received is identical to the original.
 - **2026-10-08, from SAGC:** confirmed that UMIs were included.
 - **2026-10-08, to SAGC (drafted):** high PCR duplication, read structure (UMI vs "sample ID"), adapter sequences, and library-prep details per sample (input, fragmentation, cycles, TapeStation). Draft: `RNASeq/docs/2026-10-08_SAGC_duplication_read_structure_email_DRAFT.md`.
-- **2026-10-09, to the wetlab (drafted):** meaning of the ×2 concentration, amount and volume sent to SAGC, A260/A230, extraction method and batches, any differences for FL16, FS17 and CL17, and confirmation of the esiRNA knockdown.
+- **2026-10-09, to Kelly Betterman (wetlab):** sent questions on the ×2 concentration, the amount and volume sent to SAGC, and A260/A230.
+- **2026-10-09, from Kelly:** confirmed the 1:2 dilution in TE before the NanoDrop, and the 50 ng/µl stocks (10 µl QC, 30 µl library prep, 5 µl spare). A260/A230 ratios to follow. Kelly is running her own analysis of the GC bias.
+- **2026-10-09, to Kelly (drafted):** asked about the diluent for the 50 ng/µl stocks (TE or water; EDTA concentration), DNase treatment and extraction method, and explained why TE matters.
 
 ## 10. Outstanding questions and recommendations for the new libraries
 
 **Outstanding:**
 - **From SAGC:** TapeStation RIN/DV200, Qubit values, the RNA input used per library, the corrected report, full adapter sequences, and whether the trio was processed differently.
-- **From the wetlab (Shanna):** lab book notes on FLMT16, FSMT17 and CLMT17, and the questions listed above.
+- **From SAGC (additional):** the RNA amount and volume actually used per library.
+- **From Kelly Betterman:** A260/A230 ratios; the diluent for the 50 ng/µl stocks; DNase treatment; extraction method; results of her GC-bias analysis.
+- **From Shanna Hosking:** lab book notes on any processing differences for FLMT16, FSMT17 and CLMT17.
+
+**Restart plan (2026-10-09):**
+- It is not yet known whether the new libraries will use the same RNA or new extractions. Re-using the same RNA would test the GC trio directly: if the bias disappears, it came from library prep; if it persists, it is in the RNA.
+- All current outputs will be archived before starting again.
+- Script updates will be made once new sequencing is confirmed: the ULN mapping, the hand-typed QC metrics and GC-bias sample list in 02, resume logic in the HPC scripts.
+- The proteomics data are unaffected.
 
 **For the new libraries:**
 - Confirm the read structure (UMI position and length) and adapter sequences with SAGC before sequencing.
 - Request RNA integrity data (RIN/DV200) and the input amount per sample.
+- Supply RNA in nuclease-free water or Buffer EB rather than TE, and blank the NanoDrop with the same diluent.
+- If possible, quantify by Qubit as well as NanoDrop before equalising inputs.
 - Process UMIs from the start: extract and deduplicate as in `RNASeq/hpc_scripts/scripts/`.
 - Check per-read GC content and duplication in FastQC at the first QC step.
 - Re-use scripts 01–03, which run on the deduplicated featureCounts output.

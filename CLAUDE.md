@@ -130,9 +130,9 @@ Barcode: 10bp, Dual Barcode: 10bp
 
 **Pending (as of 2026-10-09):**
 - Shanna is checking lab book notes for any processing differences in FLMT16, FSMT17, CLMT17
-- From the wetlab (asked 2026-10-09): meaning of the 2× "Concentration" column (dilution?) and which value went to SAGC; amount/volume of RNA sent; A260/A230; extraction method
-- From SAGC: TapeStation/RIN/DV200 traces and the RNA input actually used for library construction
-- Per-gene exonic GC content and length: done in `03_gene_GC_length.Rmd` (2026-10-09). **cqn GC correction not started — analysis of this dataset paused (2026-10-09):** the data are too poor quality to work with (very low complexity, GC bias in three libraries); expect new libraries and new sequencing, and to re-run the analysis from scratch
+- From Kelly Betterman (wetlab; extraction and dilutions): A260/A230 ratios (from NanoDrop screenshots); whether the 50 ng/µl stocks sent to SAGC were made in TE (standard 1 mM or low 0.1 mM EDTA) or water; DNase treatment; extraction method. Kelly is also running her own analysis of the GC bias
+- From SAGC: TapeStation/RIN/DV200 traces, Qubit values, and the RNA amount and volume actually used per library
+- Per-gene exonic GC content and length: done in `03_gene_GC_length.Rmd` (2026-10-09). **cqn GC correction not started — analysis of this dataset paused (2026-10-09):** the data are too poor quality to work with (very low complexity, GC bias in three libraries); expect new libraries and new sequencing, and to re-run the analysis from scratch. Restart plan (2026-10-09): not yet known whether new libraries will use the same RNA or new extractions; archive all current outputs before starting again; script updates (ULN mapping, hand-typed `qcMetrics` and `gcBiasSamples` in 02, resume logic, `03_umi_extract.sh` comment) deferred until new sequencing is confirmed; proteomics unaffected
 
 **RNA extraction QC from the wetlab (received 2026-10-09; hLEC B4 P4; NanoDrop):**
 
@@ -151,7 +151,8 @@ Barcode: 10bp, Dual Barcode: 10bp
 | T18 | CL18 | EGFP esiRNA LSS | C2 | 118.4 | 2.06 | 236.8 |
 | T18 | FL18 | FAT4 esiRNA LSS | D2 | 94.4 | 2.04 | 188.8 |
 
-- "Concentration" is exactly 2× the NanoDrop reading — meaning not yet confirmed. LSS = laminar shear stress. T16/T17/T18 = the three experiments (replicates); well = position on the plate sent to SAGC
+- "Concentration" = stock concentration: Kelly confirmed (2026-10-09) that samples were diluted 1:2 in TE buffer before the NanoDrop. Each sample was then diluted to 50 ng/µl and split into 10 µl for SAGC QC (500 ng) and 30 µl for library prep (1.5 µg), plus 5 µl spare (45 µl total) — so RNA amount supplied was not limiting (handbook range 1 ng–1 µg). Inputs were equalised from NanoDrop, so any sample-specific NanoDrop overestimate (gDNA, contaminants) would mean less RNA than intended — SAGC's Qubit values would show this
+- **TE/EDTA:** standard TE contains 1 mM EDTA, which chelates Mg²⁺. The kit fragments RNA with heat in a Mg²⁺-containing buffer, and the handbook (p. 35) states "The presence of Mg2+, EDTA, EGTA, other salts, and divalent ion chelators in the RNA sample will affect fragmentation times" (times assume RNA in Buffer EB or water); RT and PCR also need Mg²⁺. EDTA carry-over could reduce fragmentation (longer fragments) and cDNA yield (lower complexity). Uniform dilution means a uniform dose if SAGC used equal volumes, so it would explain a run-wide effect rather than the sample differences. Not yet known whether the 50 ng/µl stocks were in TE or water. For new libraries: RNA in nuclease-free water or Buffer EB LSS = laminar shear stress. T16/T17/T18 = the three experiments (replicates); well = position on the plate sent to SAGC
 - All samples are pure by A260/A280 (2.02–2.08) and well above the amount needed for a 100 ng input. No A260/A230 or RIN in this sheet
 - **No relationship with library complexity:** Spearman rho ≈ 0.06 between concentration and dedup % kept; e.g. CSMT17 (165.2 ng/µl) is the least complex library (2.6% kept)
 - **No relationship with the GC-bias trio:** FL16, FS17, CL17 have unremarkable concentrations (136–192), span T16 and T17, and are not adjacent on the plate (D1, F1, G1; CS17 at E1 between them)
